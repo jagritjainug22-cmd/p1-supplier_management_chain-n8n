@@ -1,5 +1,6 @@
 import streamlit as st
 import requests
+import time
 
 # ================= CONFIG =================
 
@@ -79,8 +80,9 @@ def show_followup_dialog(preview):
     # Display attachment if present
     if preview.get('drive_web_link'):
         st.subheader("📎 Attachments")
-        st.markdown(
-            f"[📄 {preview.get('drive_file_name', 'Attachment')}]({preview.get('drive_web_link')})"
+        render_attachment_preview(
+            preview.get('drive_file_name', 'Attachment'),
+            preview.get('drive_web_link')
         )
         st.divider()
     
@@ -193,31 +195,98 @@ def render_supplier_selection_table(item, email_index):
 
 # ================= INLINE RFI VIEW (NO DIALOG) =================
 
+def render_attachment_preview(file_name, file_link, file_size=None):
+    """Render attachment as a styled card preview similar to Gmail"""
+    # Determine file icon based on extension
+    file_ext = file_name.split('.')[-1].lower() if '.' in file_name else 'file'
+    
+    icon_map = {
+        'pdf': '📄',
+        'doc': '📝',
+        'docx': '📝',
+        'xls': '📊',
+        'xlsx': '📊',
+        'csv': '📊',
+        'ppt': '🎬',
+        'pptx': '🎬',
+        'zip': '📦',
+        'rar': '📦',
+        'txt': '📄',
+        'jpg': '🖼️',
+        'jpeg': '🖼️',
+        'png': '🖼️',
+        'gif': '🖼️',
+    }
+    
+    icon = icon_map.get(file_ext, '📎')
+    
+    # Create a styled container for the attachment
+    col1, col2, col3 = st.columns([0.5, 3, 1])
+    
+    with col1:
+        st.markdown(f"<div style='font-size: 24px; text-align: center;'>{icon}</div>", unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown(f"**{file_name}**")
+        if file_size:
+            st.caption(f"Size: {file_size}")
+    
+    with col3:
+        st.markdown(f"[Download](​{file_link})")
+
+
 def render_rfi_inline(rfi):
+    # ---------- RFI DISTRIBUTION SUMMARY (COLLAPSIBLE) ----------
+    with st.expander("📊 RFI Distribution Summary", expanded=True):
+        st.markdown("### RFI Distribution Summary")
+
+        st.markdown(
+            f"""
+            **Request ID:** {rfi['request_id']}  
+            **Project Code:** {rfi['project_code']}  
+            **Total RFIs Sent:** {rfi['total_rfis_sent']}  
+            **Suppliers Contacted:** {rfi['suppliers_contacted']}
+            """
+        )
+
+        st.divider()
+
+        st.components.v1.html(
+            rfi["email_body"],
+            height=500,
+            scrolling=True
+        )
+
     st.divider()
-    st.markdown("### RFI Distribution Summary")
 
-    st.markdown(
-        f"""
-        **Request ID:** {rfi['request_id']}  
-        **Project Code:** {rfi['project_code']}  
-        **Total RFIs Sent:** {rfi['total_rfis_sent']}  
-        **Suppliers Contacted:** {rfi['suppliers_contacted']}
-        """
-    )
-
-    st.divider()
-
-    st.components.v1.html(
-        rfi["email_body"],
-        height=900,
-        scrolling=True
-    )
+    # ---------- SUPPLIERS SUCCESSFULLY CONTACTED ----------
+    if st.session_state.get("suppliers_contacted_list"):
+        with st.expander("Suppliers Successfully Contacted", expanded=True):
+            st.divider()
+            for item_code, supplier_list in st.session_state.suppliers_contacted_list.items():
+                st.markdown(f"**Item:** {item_code}")
+                
+                # Create a formatted table for suppliers
+                supplier_data = []
+                for supplier in supplier_list:
+                    supplier_data.append({
+                        "Supplier": supplier.get('supplier_name', 'N/A'),
+                        "Email": supplier.get('supplier_email', 'N/A'),
+                        "ID": supplier.get('supplier_id', 'N/A'),
+                        "City": supplier.get('supplier_city', 'N/A'),
+                        "Country": supplier.get('supplier_country', 'N/A'),
+                        "Confidence": supplier.get('confidence', 'N/A').upper(),
+                        "Match Score": supplier.get('match_score', 'N/A'),
+                        "Rank": supplier.get('rank', 'N/A'),
+                    })
+                
+                st.dataframe(supplier_data, use_container_width=True, hide_index=True)
+                st.divider()
 
     # ---------- SUPPLIERS WITHOUT EMAIL ----------
     if st.session_state.get("suppliers_without_email"):
-        st.divider()
-        with st.expander("⚠ Suppliers Not Contacted (Missing Email)", expanded=False):
+        with st.expander("Suppliers Not Contacted (Missing Email)", expanded=True):
+            st.divider()
             for item_code, supplier_list in st.session_state.suppliers_without_email.items():
                 st.markdown(f"**Item:** {item_code}")
                 
@@ -236,6 +305,9 @@ def render_rfi_inline(rfi):
                 
                 st.dataframe(supplier_data, use_container_width=True, hide_index=True)
                 st.divider()
+    else:
+        st.divider()
+        st.success("All selected suppliers were contacted successfully with their email addresses!")
 
 # ================= DASHBOARD =================
 
@@ -256,245 +328,399 @@ def dashboard():
         "rfi_sent": False,
         "show_rfi": False,
         "suppliers_without_email": {},
+        "suppliers_contacted_list": {},
         "followup_preview": None,
         "followup_sent": False,
         "processed_email_index": None,
         "show_followup_preview": False,
+        "current_tab": 0,  # Tab navigation: 0=Tab1, 1=Tab2, 2=Tab3, 3=Tab4, 4=Tab5
+        "selected_email_index": None,  # Track which email is being processed
     }.items():
         st.session_state.setdefault(k, v)
 
-    # ---------- FETCH EMAILS ----------
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        if st.button("Fetch Unread Emails", use_container_width=True, type="primary"):
-            res = requests.post(PROCESS_EMAILS_URL, timeout=120)
-            res.raise_for_status()
-            st.session_state.emails = res.json() if res.text.strip() else []
-            
-            if not st.session_state.emails:
-                st.info("No new emails received")
-
-    # ---------- EMAIL LIST ----------
-    for i, email in enumerate(st.session_state.emails):
-        # Format the email date
-        date_str = email.get('date', 'N/A')
-        formatted_date = 'N/A'
-        if date_str != 'N/A':
-            try:
-                from datetime import datetime
-                date_obj = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-                formatted_date = date_obj.strftime("%b %d, %Y %I:%M %p")
-            except:
-                formatted_date = date_str
-        
-        # Create two columns for subject and date
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            expander_label = f"📧 {email.get('subject')}"
-        with col2:
-            expander_label += f"    {formatted_date}"
-        
-        with st.expander(expander_label):
-            render_email_details(email)
-
-            if st.button("Process Email", key=f"proc_{i}", use_container_width=True, type="primary"):
-                res = requests.post(
-                    f"{N8N_BASE_URL}process-single-email",
-                    json=email,
-                    timeout=300
-                )
-                res.raise_for_status()
-                response_data = res.json()
-                
-                # Handle array response - take the first item
-                if isinstance(response_data, list) and len(response_data) > 0:
-                    response_data = response_data[0]
-                
-                st.session_state.process_result = response_data
-                st.session_state.current_request_id = response_data.get("request_id")
-                st.session_state.processed_email_index = i
+    # ---------- TAB STRUCTURE (Custom Navigation) ----------
+    # Create custom tab buttons for programmatic control
+    tab_names = ["Fetch Emails", "Email Details", "Supplier Matching", "Follow-up", "RFI Summary"]
+    cols = st.columns(5)
+    
+    for idx, (col, tab_name) in enumerate(zip(cols, tab_names)):
+        with col:
+            # Highlight active tab with primary styling
+            is_active = st.session_state.current_tab == idx
+            if st.button(tab_name, use_container_width=True, key=f"tab_btn_{idx}", 
+                        type="primary" if is_active else "secondary"):
+                st.session_state.current_tab = idx
                 st.rerun()
+    
+    st.divider()
+
+    # ============ TAB 1: FETCH UNREAD EMAILS ============
+    if st.session_state.current_tab == 0:
+        st.markdown("### Fetch Unread Emails")
+        st.divider()
+        
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("Fetch Unread Emails", use_container_width=True, type="primary", key="fetch_emails_btn"):
+                res = requests.post(PROCESS_EMAILS_URL, timeout=120)
+                res.raise_for_status()
+                st.session_state.emails = res.json() if res.text.strip() else []
+                st.session_state.current_tab = 0  # Stay on Tab 1
+                
+                if not st.session_state.emails:
+                    st.info("No new emails received")
+                else:
+                    st.success(f"Found {len(st.session_state.emails)} unread email(s)")
+
+        st.divider()
+        
+        # Display list of emails
+        if st.session_state.emails:
+            st.markdown("### Email List")
+            for i, email in enumerate(st.session_state.emails):
+                # Format the email date
+                date_str = email.get('date', 'N/A')
+                formatted_date = 'N/A'
+                if date_str != 'N/A':
+                    try:
+                        from datetime import datetime
+                        date_obj = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                        formatted_date = date_obj.strftime("%b %d, %Y %I:%M %p")
+                    except:
+                        formatted_date = date_str
+                
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    subject = email.get('subject', 'No Subject')
+                with col2:
+                    date_display = formatted_date
+                
+                email_container = st.container(border=True)
+                with email_container:
+                    col1, col2, col3 = st.columns([3, 1, 1])
+                    with col1:
+                        st.markdown(f"📧 **{subject}**")
+                        st.caption(f"From: {email.get('from', {}).get('text', 'Unknown')}")
+                        st.caption(f"Date: {date_display}")
+                    with col3:
+                        if st.button("Open", key=f"open_email_{i}", use_container_width=True):
+                            st.session_state.selected_email_index = i
+                            st.session_state.current_tab = 1  # Switch to Tab 2
+                            st.rerun()
+
+    # ============ TAB 2: EMAIL DETAILS & PROCESS ============
+    elif st.session_state.current_tab == 1:
+        st.markdown("### 📄 Email Details")
+        st.divider()
+        
+        if st.session_state.selected_email_index is not None and st.session_state.selected_email_index < len(st.session_state.emails):
+            i = st.session_state.selected_email_index
+            email = st.session_state.emails[i]
             
-            # ---------- PROCESS RESULT (Inside Email Expander) ----------
-            # Only show results if this email was just processed
-            if st.session_state.get("processed_email_index") == i:
-                result = st.session_state.process_result
-                if result:
-                    st.divider()
+            render_email_details(email)
+            
+            st.divider()
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                if st.button("Process Email", key=f"proc_btn_{i}", use_container_width=True, type="primary"):
+                    res = requests.post(
+                        f"{N8N_BASE_URL}process-single-email",
+                        json=email,
+                        timeout=300
+                    )
+                    res.raise_for_status()
+                    response_data = res.json()
                     
-                    # Check if status is success and display message
-                    if result.get("status") == "success":
-                        message = result.get("message", "Processing successful")
+                    # Handle array response - take the first item
+                    if isinstance(response_data, list) and len(response_data) > 0:
+                        response_data = response_data[0]
+                    
+                    st.session_state.process_result = response_data
+                    st.session_state.current_request_id = response_data.get("request_id")
+                    st.session_state.processed_email_index = i
+                    
+                    # Show status message briefly before switching tabs
+                    if response_data.get("status") == "success":
+                        message = response_data.get("message", "Processing successful")
                         st.success(f"{message}")
+                        
+                        if response_data.get("next_action") == "match_suppliers":
+                            st.info("BOM Complete — Switching to Supplier Matching...")
+                        elif response_data.get("next_action") == "send-followup":
+                            st.warning("BOM Incomplete — Switching to Follow-up...")
+                    
+                    # Wait 2 seconds to let user see the status
+                    time.sleep(2)
+                    
+                    # Route to appropriate tab based on next_action
+                    if response_data.get("next_action") == "match_suppliers":
+                        st.session_state.current_tab = 2  # Tab 3
+                    elif response_data.get("next_action") == "send-followup":
+                        st.session_state.current_tab = 3  # Tab 4
+                    
+                    st.rerun()
+            
+            # Show process result message if exists
+            result = st.session_state.process_result
+            if result and st.session_state.get("processed_email_index") == i:
+                st.divider()
+                if result.get("status") == "success":
+                    message = result.get("message", "Processing successful")
+                    st.success(f"{message}")
                     
                     if result.get("next_action") == "match_suppliers":
-                        if st.button("Match Suppliers", key=f"match_{i}", use_container_width=True, type="primary"):
-                            matches = trigger_supplier_matching(st.session_state.current_request_id)
-                            st.session_state.supplier_matches = matches
-                            st.session_state.selected_suppliers = {}
-                            st.rerun()
-                        
-                        # ---------- BOM ITEMS & RFI SUBMISSION ----------
-                        # Show BOM items after matching suppliers
-                        if st.session_state.supplier_matches:
-                            st.divider()
-                            st.markdown("### Bill of Materials (BOM)")
-                            
-                            for item in st.session_state.supplier_matches:
-                                with st.expander(f"🔍 {item['item_code']} — {item['item_description']}", expanded=False):
-                                    render_supplier_selection_table(item, i)
-
-                            # ---------- SUBMIT RFIs ----------
-                            st.divider()
-                            if st.button("Send RFIs", key=f"submit_rfi_{i}", use_container_width=True, type="primary"):
-                                st.session_state.active_item = None  # 🔑 Close dialog immediately
-                                
-                                payload = []
-                                suppliers_without_email = {}
-                                
-                                for item in st.session_state.supplier_matches:
-                                    suppliers = []
-                                    missing_email = []
-                                    
-                                    for s in item["suppliers"]:
-                                        key = f"{item['item_code']}::{s['supplier_id']}"
-                                        if st.session_state.selected_suppliers.get(key):
-                                            # Check if supplier has email
-                                            if s.get("supplier_email"):
-                                                suppliers.append(s)
-                                            else:
-                                                # Store suppliers without email
-                                                missing_email.append(s)
-
-                                    if suppliers:
-                                        payload.append({**item, "suppliers": suppliers})
-                                    
-                                    # Store missing email suppliers by item code
-                                    if missing_email:
-                                        suppliers_without_email[item['item_code']] = missing_email
-
-                                if not payload:
-                                    st.error("No suppliers with email addresses selected")
-                                else:
-                                    res = requests.post(
-                                        f"{N8N_BASE_URL}send-RFI",
-                                        json=payload,
-                                        timeout=180
-                                    )
-                                    res.raise_for_status()
-
-                                    data = res.json()
-                                    st.session_state.rfi_result = data[0]
-                                    st.session_state.rfi_sent = True
-                                    st.session_state.suppliers_without_email = suppliers_without_email  # 🔑 Store missing suppliers
-                                    st.rerun()
-
-                            # ---------- VIEW RFIs ----------
-                            if st.session_state.rfi_sent:
-                                st.success("RFIs successfully sent")
-                                if st.button("View RFIs", key=f"view_rfi_{i}", use_container_width=True, type="secondary"):
-                                    st.session_state.active_item = None
-                                    st.session_state.show_rfi = True
-                                    st.rerun()
-
-                                if st.session_state.show_rfi and st.session_state.rfi_result:
-                                    render_rfi_inline(st.session_state.rfi_result)
-                    
-                    # Handle follow-up case
-                    if result.get("next_action") == "send-followup":
+                        st.info("🔄Switching to Supplier Matching tab...")
+                    elif result.get("next_action") == "send-followup":
                         st.warning("BOM Incomplete — Follow-up Required")
+                        st.info("🔄 Switching to Follow-up tab...")
+        else:
+            st.info("Select an email from Tab 1 to view details")
+
+    # ============ TAB 3: SUPPLIER MATCHING & RFI ============
+    elif st.session_state.current_tab == 2:
+        st.markdown("### Supplier Matching & RFI")
+        st.divider()
+        
+        result = st.session_state.process_result
+        
+        if result and result.get("next_action") == "match_suppliers":
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                if st.button("Match Suppliers", key=f"match_btn", use_container_width=True, type="primary"):
+                    matches = trigger_supplier_matching(st.session_state.current_request_id)
+                    st.session_state.supplier_matches = matches
+                    st.session_state.selected_suppliers = {}
+                    st.rerun()
+            
+            st.divider()
+            
+            # Show BOM items after matching suppliers
+            if st.session_state.supplier_matches:
+                st.markdown("### Bill of Materials (BOM)")
+                st.divider()
+                
+                for item in st.session_state.supplier_matches:
+                    with st.expander(f"🔍 {item['item_code']} — {item['item_description']}", expanded=False):
+                        render_supplier_selection_table(item, st.session_state.selected_email_index or 0)
+
+                st.divider()
+                col1, col2, col3 = st.columns([1, 2, 1])
+                with col2:
+                    if st.button("Send RFIs", key=f"submit_rfi_btn", use_container_width=True, type="primary"):
+                        st.session_state.active_item = None
                         
-                        if not st.session_state.followup_preview:
-                            if st.button("Process Follow-up Email", key=f"followup_process_{i}", use_container_width=True, type="primary"):
-                                try:
-                                    res = requests.post(
-                                        f"{N8N_BASE_URL}preview-followup",
-                                        json={"request_id": st.session_state.current_request_id},
-                                        timeout=120
-                                    )
-                                    res.raise_for_status()
-                                    st.session_state.followup_preview = res.json()
-                                    st.rerun()
-                                except requests.RequestException as e:
-                                    st.error(f"Error generating follow-up: {str(e)}")
+                        payload = []
+                        suppliers_without_email = {}
+                        suppliers_contacted_list = {}
+                        
+                        for item in st.session_state.supplier_matches:
+                            suppliers = []
+                            missing_email = []
+                            
+                            for s in item["suppliers"]:
+                                key = f"{item['item_code']}::{s['supplier_id']}"
+                                if st.session_state.selected_suppliers.get(key):
+                                    # Check if supplier has email
+                                    if s.get("supplier_email"):
+                                        suppliers.append(s)
+                                    else:
+                                        # Store suppliers without email
+                                        missing_email.append(s)
+
+                            if suppliers:
+                                payload.append({**item, "suppliers": suppliers})
+                                # Store suppliers that will be contacted
+                                suppliers_contacted_list[item['item_code']] = suppliers
+                            
+                            # Store missing email suppliers by item code
+                            if missing_email:
+                                suppliers_without_email[item['item_code']] = missing_email
+
+                        if not payload:
+                            st.error("No suppliers with email addresses selected")
                         else:
-                            # Show follow-up options
-                            preview = st.session_state.followup_preview
-                            
-                            st.divider()
-                            
-                            # Display preview in an expander
-                            if isinstance(preview, list):
-                                preview_data = preview[0] if preview else {}
-                            else:
-                                preview_data = preview
-                            
-                            with st.expander(f"View Follow-up", expanded=st.session_state.get("show_followup_preview", False)):
-                                st.markdown(f"**To:** {preview_data.get('email_to')}")
-                                st.markdown(f"**Subject:** {preview_data.get('email_subject')}")
-                                st.divider()
+                            res = requests.post(
+                                f"{N8N_BASE_URL}send-RFI",
+                                json=payload,
+                                timeout=180
+                            )
+                            res.raise_for_status()
+
+                            data = res.json()
+                            st.session_state.rfi_result = data[0]
+                            st.session_state.rfi_sent = True
+                            st.session_state.suppliers_without_email = suppliers_without_email
+                            st.session_state.suppliers_contacted_list = suppliers_contacted_list
+                            st.session_state.current_tab = 4  # Switch to Tab 5
+                            st.rerun()
+        else:
+            st.info("Process an email with BOM Complete status to access supplier matching")
+
+    # ============ TAB 4: FOLLOW-UP PROCESSING ============
+    elif st.session_state.current_tab == 3:
+        st.markdown("### Follow-up Processing")
+        st.divider()
+        
+        result = st.session_state.process_result
+        
+        if result and result.get("next_action") == "send-followup":
+            st.warning("BOM Incomplete — Follow-up Required")
+            st.divider()
+            
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                if not st.session_state.followup_preview:
+                    if st.button("Prepare Follow-up", key=f"followup_prep_btn", use_container_width=True, type="primary"):
+                        try:
+                            res = requests.post(
+                                f"{N8N_BASE_URL}preview-followup",
+                                json={"request_id": st.session_state.current_request_id},
+                                timeout=120
+                            )
+                            res.raise_for_status()
+                            st.session_state.followup_preview = res.json()
+                            st.rerun()
+                        except requests.RequestException as e:
+                            st.error(f"Error generating follow-up: {str(e)}")
+                else:
+                    st.success("Follow-up prepared successfully")
+            
+            st.divider()
+            
+            # Show follow-up preview
+            if st.session_state.followup_preview:
+                preview = st.session_state.followup_preview
+                
+                # Display preview in an expander
+                if isinstance(preview, list):
+                    preview_data = preview[0] if preview else {}
+                else:
+                    preview_data = preview
+                
+                with st.expander(f"View Follow-up Email", expanded=True):
+                    st.markdown(f"**To:** {preview_data.get('email_to')}")
+                    st.markdown(f"**Subject:** {preview_data.get('email_subject')}")
+                    st.divider()
+                    
+                    st.components.v1.html(preview_data.get("email_body", ""), height=400, scrolling=True)
+                    st.divider()
+                    # Display attachment if present
+                    if preview_data.get('drive_web_link'):
+                        st.markdown("#### 📎 Attachments")
+                        render_attachment_preview(
+                            preview_data.get('drive_file_name', 'Attachment'),
+                            preview_data.get('drive_web_link')
+                        )
+                        st.divider()
+                
+                # Send Follow-up button
+                if not st.session_state.followup_sent:
+                    col1, col2, col3 = st.columns([1, 2, 1])
+                    with col2:
+                        if st.button("Send Follow-up", key=f"send_followup_btn", use_container_width=True, type="primary"):
+                            try:
+                                res = requests.post(
+                                    f"{N8N_BASE_URL}send-followup",
+                                    json=st.session_state.followup_preview,
+                                    timeout=120
+                                )
+                                res.raise_for_status()
+                                response_data = res.json()
                                 
-                                
-                                st.components.v1.html(preview_data.get("email_body", ""), height=400, scrolling=True)
-                                st.divider()
-                                # Display attachment if present
-                                if preview_data.get('drive_web_link'):
-                                    st.markdown("#### Attachments")
-                                    st.markdown(
-                                        f"[{preview_data.get('drive_file_name', 'Attachment')}]({preview_data.get('drive_web_link')})"
-                                    )
-                                    st.divider()
-                                
-                            # Send Follow-up button after expander
-                            if not st.session_state.followup_sent:
-                                if st.button("Send Follow-up", key=f"send_followup_{i}", use_container_width=True, type="primary"):
-                                    try:
-                                        res = requests.post(
-                                            f"{N8N_BASE_URL}send-followup",
-                                            json=st.session_state.followup_preview,
-                                            timeout=120
-                                        )
-                                        res.raise_for_status()
-                                        response_data = res.json()
-                                        
-                                        # Handle list response (array of objects)
-                                        if isinstance(response_data, list) and len(response_data) > 0:
-                                            response_obj = response_data[0]
-                                            if response_obj.get("followup_sent_at"):
-                                                st.session_state.followup_sent = True
-                                                # Get recipient from preview
-                                                if isinstance(preview, list):
-                                                    preview = preview[0] if preview else {}
-                                                recipient = preview.get('email_to', 'Unknown')
-                                                st.success(f"Follow-up email sent successfully to {recipient}")
-                                            else:
-                                                st.error(f"Error: Failed to send follow-up")
-                                        # Handle dict response
-                                        elif isinstance(response_data, dict):
-                                            if response_data.get("success") or response_data.get("followup_sent_at"):
-                                                st.session_state.followup_sent = True
-                                                # Get recipient from preview
-                                                if isinstance(preview, list):
-                                                    preview = preview[0] if preview else {}
-                                                recipient = preview.get('email_to', 'Unknown')
-                                                st.success(f"Follow-up email sent successfully to {recipient}")
-                                            else:
-                                                st.error(f"Error: {response_data.get('message', 'Failed to send follow-up')}")
-                                        else:
-                                            st.error("Error: Invalid response format")
-                                    except requests.RequestException as e:
-                                        st.error(f"Error sending follow-up: {str(e)}")
-                            
-                            # Show success message if already sent
-                            # if st.session_state.followup_sent:
-                            #     # st.success("Follow-up email sent successfully")
-                            #     # st.button("Send Follow-up", key=f"send_followup_done_{i}", use_container_width=True, disabled=True)
+                                # Handle list response (array of objects)
+                                if isinstance(response_data, list) and len(response_data) > 0:
+                                    response_obj = response_data[0]
+                                    if response_obj.get("followup_sent_at"):
+                                        st.session_state.followup_sent = True
+                                        # Get recipient from preview
+                                        if isinstance(preview, list):
+                                            preview = preview[0] if preview else {}
+                                        recipient = preview.get('email_to', 'Unknown')
+                                        st.success(f"Follow-up email sent successfully to {recipient}")
+                                    else:
+                                        st.error(f"Error: Failed to send follow-up")
+                                # Handle dict response
+                                elif isinstance(response_data, dict):
+                                    if response_data.get("success") or response_data.get("followup_sent_at"):
+                                        st.session_state.followup_sent = True
+                                        # Get recipient from preview
+                                        if isinstance(preview, list):
+                                            preview = preview[0] if preview else {}
+                                        recipient = preview.get('email_to', 'Unknown')
+                                        st.success(f"Follow-up email sent successfully to {recipient}")
+                                    else:
+                                        st.error(f"Error: {response_data.get('message', 'Failed to send follow-up')}")
+                                else:
+                                    st.error("Error: Invalid response format")
+                                st.rerun()
+                            except requests.RequestException as e:
+                                st.error(f"Error sending follow-up: {str(e)}")
+                else:
+                    st.success("Follow-up email sent successfully")
+                    st.divider()
+                    col1, col2, col3 = st.columns([1, 2, 1])
+                    with col2:
+                        if st.button("Process Another Email", key=f"tab4_back_to_tab1", use_container_width=True, type="secondary"):
+                            # Reset state for new email
+                            st.session_state.current_tab = 0
+                            st.session_state.selected_email_index = None
+                            st.session_state.process_result = None
+                            st.session_state.followup_preview = None
+                            st.session_state.followup_sent = False
+                            st.session_state.current_request_id = None
+                            st.rerun()
+        else:
+            st.info("Process an email with BOM Incomplete status to access follow-up processing")
+
+    # ============ TAB 5: RFI DISTRIBUTION SUMMARY ============
+    elif st.session_state.current_tab == 4:
+        st.markdown("### 📤 RFI Distribution Summary")
+        st.divider()
+        
+        if st.session_state.rfi_sent and st.session_state.rfi_result:
+            render_rfi_inline(st.session_state.rfi_result)
+            
+            st.divider()
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                if st.button("Process Another Email", key=f"tab5_back_to_tab1", use_container_width=True, type="secondary"):
+                    # Reset state for new email
+                    st.session_state.current_tab = 0
+                    st.session_state.selected_email_index = None
+                    st.session_state.process_result = None
+                    st.session_state.rfi_sent = False
+                    st.session_state.rfi_result = None
+                    st.session_state.suppliers_without_email = {}
+                    st.session_state.suppliers_contacted_list = {}
+                    st.session_state.supplier_matches = []
+                    st.session_state.selected_suppliers = {}
+                    st.session_state.current_request_id = None
+                    st.rerun()
+        else:
+            st.info("Send RFIs from Tab 3 to view the distribution summary")
 
     # ---------- LOGOUT ----------
-    st.divider()
-    if st.button("Logout", use_container_width=True, type="secondary"):
-        st.session_state.clear()
-        st.rerun()
+
+    # --- LOGOUT BUTTON TOP-RIGHT ---
+    logout_css = """
+    <style>
+    .logout-btn-container {
+        position: fixed;
+        top: 1.5rem;
+        right: 2.5rem;
+        z-index: 9999;
+    }
+    </style>
+    <div class="logout-btn-container">
+        <span id="logout-btn-anchor"></span>
+    </div>
+    """
+    st.markdown(logout_css, unsafe_allow_html=True)
+    logout_placeholder = st.empty()
+    with logout_placeholder.container():
+        if st.button("Logout", key="logout_topright", type="secondary"):
+            st.session_state.clear()
+            st.rerun()
 
 # ================= ENTRY =================
 
