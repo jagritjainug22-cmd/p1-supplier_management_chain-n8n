@@ -2,6 +2,8 @@ import streamlit as st
 # from google.oauth2.service_account import Credentials
 from components.dashboard import dashboard
 from components.analyse_dashboard import analyse_dashboard
+import streamlit_shadcn_ui as ui
+
 
 # ================= CONFIG =================
 
@@ -31,7 +33,7 @@ def login():
         st.markdown("### Sign In")
         user = st.text_input("Username", label_visibility="collapsed", placeholder="Enter username")
         pwd = st.text_input("Password", type="password", label_visibility="collapsed", placeholder="Enter password")
-
+        
         if st.button("Sign In", use_container_width=True):
             if user == USERNAME and pwd == PASSWORD:
                 st.session_state.logged_in = True
@@ -57,7 +59,7 @@ def sidebar():
         )
 
         st.divider()
-        st.markdown('<div class="sidebar-title">Navigation</div>', unsafe_allow_html=True)
+        # st.markdown('<div class="sidebar-title">Navigation</div>', unsafe_allow_html=True)
 
         # Custom button navigation with icons
         options = ["Dashboard", "Analyse"]
@@ -106,6 +108,19 @@ if "logged_in" not in st.session_state:
 
 if "sidebar_page" not in st.session_state:
     st.session_state.sidebar_page = "Dashboard"
+
+import streamlit as st
+import streamlit_shadcn_ui as ui
+
+st.title("Shadcn UI Button Example")
+
+btn_clicked = ui.button(
+    text="Click Me!",
+    key="shadcn_btn"
+)
+
+if btn_clicked:
+    st.write("Button was clicked!")
 
 if not st.session_state.logged_in:
     login()

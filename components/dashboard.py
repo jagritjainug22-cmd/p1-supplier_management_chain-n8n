@@ -72,25 +72,26 @@ def fetch_status_from_sheet(request_id):
 
 def trigger_supplier_matching(request_id):
     """Trigger supplier matching workflow"""
-    res = requests.post(
-        f"{N8N_BASE_URL}supplier-matching",
-        json={"request_id": request_id},
-        timeout=240
-    )
-    res.raise_for_status()
+    with st.spinner("Matching suppliers..."):
+        res = requests.post(
+            f"{N8N_BASE_URL}supplier-matching",
+            json={"request_id": request_id},
+            timeout=240
+        )
+        res.raise_for_status()
 
-    if not res.text.strip():
+        if not res.text.strip():
+            return []
+
+        data = res.json()
+
+        if isinstance(data, dict) and "item_code" in data:
+            return [data]
+
+        if isinstance(data, list):
+            return data
+
         return []
-
-    data = res.json()
-
-    if isinstance(data, dict) and "item_code" in data:
-        return [data]
-
-    if isinstance(data, list):
-        return data
-
-    return []
 
 
 def render_supplier_selection_table(item, email_index):
@@ -309,9 +310,10 @@ def dashboard():
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             if st.button("Fetch Unread Emails", use_container_width=True, type="primary", key="fetch_emails_btn"):
-                res = requests.post(f"{N8N_BASE_URL}process-emails", timeout=120)
-                res.raise_for_status()
-                st.session_state.emails = res.json() if res.text.strip() else []
+                with st.spinner("Fetching unread emails..."):
+                    res = requests.post(f"{N8N_BASE_URL}process-emails", timeout=120)
+                    res.raise_for_status()
+                    st.session_state.emails = res.json() if res.text.strip() else []
                 
                 if not st.session_state.emails:
                     st.info("No new emails received")
@@ -391,13 +393,14 @@ def dashboard():
                     poll_thread = threading.Thread(target=poll_google_sheet)
                     poll_thread.start()
 
-                    res = requests.post(
-                        f"{N8N_BASE_URL}process-single-email",
-                        json=email,
-                        timeout=300
-                    )
-                    res.raise_for_status()
-                    response_data = res.json()
+                    with st.spinner("Processing email..."):
+                        res = requests.post(
+                            f"{N8N_BASE_URL}process-single-email",
+                            json=email,
+                            timeout=300
+                        )
+                        res.raise_for_status()
+                        response_data = res.json()
 
                     polling_active["running"] = False
                     poll_thread.join()
@@ -504,14 +507,14 @@ def dashboard():
                         if not payload:
                             st.error("No suppliers with email addresses selected")
                         else:
-                            res = requests.post(
-                                f"{N8N_BASE_URL}send-RFI",
-                                json=payload,
-                                timeout=180
-                            )
-                            res.raise_for_status()
-
-                            data = res.json()
+                            with st.spinner("Sending RFIs..."):
+                                res = requests.post(
+                                    f"{N8N_BASE_URL}send-RFI",
+                                    json=payload,
+                                    timeout=180
+                                )
+                                res.raise_for_status()
+                                data = res.json()
                             st.session_state.rfi_result = data[0]
                             st.session_state.rfi_sent = True
                             latest_status = fetch_status_from_sheet(st.session_state.current_request_id)
@@ -540,14 +543,15 @@ def dashboard():
                 if not st.session_state.followup_preview:
                     if st.button("Prepare Follow-up", key=f"followup_prep_btn", use_container_width=True, type="primary"):
                         try:
-                            res = requests.post(
-                                f"{N8N_BASE_URL}preview-followup",
-                                json={"request_id": st.session_state.current_request_id},
-                                timeout=120
-                            )
-                            res.raise_for_status()
-                            st.session_state.followup_preview = res.json()
-                            st.rerun()
+                            with st.spinner("Preparing follow-up preview..."):
+                                res = requests.post(
+                                    f"{N8N_BASE_URL}preview-followup",
+                                    json={"request_id": st.session_state.current_request_id},
+                                    timeout=120
+                                )
+                                res.raise_for_status()
+                                st.session_state.followup_preview = res.json()
+                                st.rerun()
                         except requests.RequestException as e:
                             st.error(f"Error generating follow-up: {str(e)}")
                 else:
@@ -584,13 +588,14 @@ def dashboard():
                     with col2:
                         if st.button("Send Follow-up", key=f"send_followup_btn", use_container_width=True, type="primary"):
                             try:
-                                res = requests.post(
-                                    f"{N8N_BASE_URL}send-followup",
-                                    json=st.session_state.followup_preview,
-                                    timeout=120
-                                )
-                                res.raise_for_status()
-                                response_data = res.json()
+                                with st.spinner("Sending follow-up email..."):
+                                    res = requests.post(
+                                        f"{N8N_BASE_URL}send-followup",
+                                        json=st.session_state.followup_preview,
+                                        timeout=120
+                                    )
+                                    res.raise_for_status()
+                                    response_data = res.json()
                                 
                                 if isinstance(response_data, list) and len(response_data) > 0:
                                     response_obj = response_data[0]
