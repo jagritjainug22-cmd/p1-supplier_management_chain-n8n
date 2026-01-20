@@ -1,19 +1,14 @@
 import streamlit as st
-# from google.oauth2.service_account import Credentials
 from components.dashboard import dashboard
 from components.analyse_dashboard import analyse_dashboard
 import streamlit_shadcn_ui as ui
 
-
-# ================= CONFIG =================
 
 N8N_BASE_URL = "http://localhost:5678/webhook-test/"
 PROCESS_EMAILS_URL = f"{N8N_BASE_URL}process-emails"
 
 USERNAME = "manager"
 PASSWORD = "manager123"
-
-# ================= LOGIN =================
 
 def login():
     st.markdown(
@@ -42,8 +37,6 @@ def login():
             else:
                 st.error("Invalid username or password")
 
-# ================= SIDEBAR =================
-
 def sidebar():
     with st.sidebar:
         st.markdown(
@@ -59,9 +52,6 @@ def sidebar():
         )
 
         st.divider()
-        # st.markdown('<div class="sidebar-title">Navigation</div>', unsafe_allow_html=True)
-
-        # Custom button navigation with icons
         options = ["Dashboard", "Analyse"]
         icons = {"Dashboard": "", "Analyse": ""}
         if "sidebar_page" not in st.session_state:
@@ -78,24 +68,17 @@ def sidebar():
             if btn:
                 st.session_state.sidebar_page = opt
                 st.rerun()
-            # Custom highlight for selected
             if selected:
                 st.sidebar.markdown(
                     f"<style>div[data-testid='stSidebar'] button[data-testid='baseButton'][key='sidebar_btn_{opt}'] {{background: linear-gradient(90deg, #eaf6fb 0%, #b2e0fb 100%); color: #0077b6; font-weight: bold;}}</style>",
                     unsafe_allow_html=True
                 )
-        
-
-        # Removed reference to page variable
-
         st.divider()
 
         if st.button("🚪 Logout", use_container_width=True):
             st.session_state.logged_in = False
             st.session_state.sidebar_page = "Dashboard"
             st.rerun()
-
-            # Navigation handled by custom buttons above; removed old radio and page assignment
 
 st.set_page_config(
     page_title="Procurement Manager",
@@ -109,25 +92,10 @@ if "logged_in" not in st.session_state:
 if "sidebar_page" not in st.session_state:
     st.session_state.sidebar_page = "Dashboard"
 
-import streamlit as st
-import streamlit_shadcn_ui as ui
-
-st.title("Shadcn UI Button Example")
-
-btn_clicked = ui.button(
-    text="Click Me!",
-    key="shadcn_btn"
-)
-
-if btn_clicked:
-    st.write("Button was clicked!")
-
 if not st.session_state.logged_in:
     login()
 else:
     sidebar()
-
-    # ================= ROUTING =================
     if st.session_state.sidebar_page == "Dashboard":
         dashboard()
     elif st.session_state.sidebar_page == "Analyse":
