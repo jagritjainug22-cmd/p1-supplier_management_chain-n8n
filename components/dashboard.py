@@ -3,6 +3,18 @@ import requests
 import time
 from streamlit_lottie import st_lottie
 import json
+from enum import Enum
+
+class ProcessingState(str, Enum):
+    IDLE = "idle"
+    START_EXECUTION = "start_execution"
+    SHOW_STATUS = "show_status"
+    SECOND_INTERMEDIATE = "second_intermediate"
+    SHOW_STATUS_2 = "show_status_2"
+    RESUME_EXECUTION = "resume_execution"
+    DONE = "done"
+    ERROR = "error"
+
 
 def load_lottie_file(filepath):
     try:
@@ -18,6 +30,8 @@ lottie_animation = load_lottie_file("assets/plane_animation.json")
 lottie_load_error = None
 if lottie_animation is None:
     lottie_load_error = "Could not load animation from assets/plane_animation.json"
+
+ANIMATION_DURATION_SECONDS = 10  # 121 frames @ ~60 FPS
 
 # You'll need to pass config from main.py or define here
 N8N_BASE_URL = "http://localhost:5678/webhook-test/"
@@ -108,6 +122,36 @@ def render_email_details(email):
     else:
         st.text(email.get("text", ""))
 
+
+@st.dialog("Processing Complete")
+def show_processing_complete_dialog(status_message, next_action):
+    """Show final processing status with OK button"""
+    st.success("✅ Email processed successfully!")
+    
+    # Determine BOM status based on next_action
+    if next_action == "match_suppliers":
+        bom_status = "BOM Complete"
+    elif next_action == "send-followup":
+        bom_status = "BOM Incomplete"
+    else:
+        bom_status = "Processing Complete"
+    
+    st.info(f"**Status:** {bom_status}")
+    
+    st.divider()
+    
+    if next_action == "match_suppliers":
+        st.markdown("**Next Step:** Supplier Shortlisting")
+    elif next_action == "send-followup":
+        st.markdown("**Next Step:** BOM Validation")
+    
+    st.divider()
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if st.button("OK", use_container_width=True, type="primary"):
+            st.session_state.show_completion_dialog = False
+            st.rerun()
 
 @st.dialog("Follow-up Email Preview")
 def show_followup_dialog(preview):
@@ -341,8 +385,9 @@ def render_processing_inline():
         st_lottie(
             lottie_animation,
             height=180,
-            key=f"inline_processing_{st.session_state.processing_email_index}",
-            loop=True
+            loop=False,          # play once
+            speed=1,
+            key="inline_processing_once",
         )
     else:
         st.spinner("Processing email...")
@@ -384,11 +429,17 @@ def dashboard():
         "is_processing": False,
         "process_error": None,
         "process_success": False,
-        "processing_started": False,
+        # "processing_started": False,
         "processing_email_index": None,
         "is_preparing_followup": False,
         "followup_prep_error": None,
-        "followup_prep_success": False
+        "followup_prep_success": False,
+        "processing_state" : ProcessingState.IDLE,
+        "processing_email_index": None,
+        "resume_url": None,
+        "status_message": None,
+        "process_result": None,
+        "process_error" : None   
     }.items():
         st.session_state.setdefault(k, v)
 
@@ -405,10 +456,14 @@ def dashboard():
         # st.slider("Animation height (px)", 40, 400, value=st.session_state.get("lottie_height", 80), key="lottie_height")
         # st.selectbox("Animation position", ["left", "center", "right"], index=["left", "center", "right"].index(st.session_state.get("lottie_position", "center")), key="lottie_position")
 
-    # Tab navigation - only show tabs that have been unlocked or are currently active
+    # Tab navigation - only show Inbox (0) and current active tab
     tab_names = ["Inbox", "Request Review", "Supplier Shortlisting", "BOM Validation", "RFI Review"]
 
-    visible_indices = [i for i in range(len(tab_names)) if st.session_state.get("tab_unlocked", {}).get(i) or st.session_state.current_tab == i]
+    # Always show Inbox (index 0) + current active tab only
+    visible_indices = [0]  # Always include Inbox
+    if st.session_state.current_tab != 0:
+        visible_indices.append(st.session_state.current_tab)
+    
     if visible_indices:
         cols = st.columns(len(visible_indices))
         for col, idx in zip(cols, visible_indices):
@@ -418,8 +473,6 @@ def dashboard():
                 if st.button(tab_name, use_container_width=True, key=f"tab_btn_{idx}", 
                             type="primary" if is_active else "secondary"):
                     st.session_state.current_tab = idx
-                    # Ensure the tab remains unlocked when user navigates to it
-                    st.session_state["tab_unlocked"][idx] = True
                     st.rerun()
     
     st.divider()
@@ -467,10 +520,12 @@ def dashboard():
                         st.caption(f"From: {email.get('from', {}).get('text', 'Unknown')}")
                         st.caption(f"Date: {formatted_date}")
 
-                        request_id = email.get("request_id")
-                        status_text = "Not processed"
-                        if request_id:
-                            status_text = fetch_status_from_sheet(request_id)
+                        # Check if we have cached status
+                        if i in st.session_state.email_status_map:
+                            status_text = st.session_state.email_status_map[i]
+                        else:
+                            status_text = "Not processed"
+                        
                         st.markdown(f"**Status:** `{status_text}`")
 
                     with col3:
@@ -482,108 +537,207 @@ def dashboard():
 
     # TAB 2: Email Details
     elif st.session_state.current_tab == 1:
-        # Render processing overlay if currently processing
-        # if st.session_state.is_processing and not st.session_state.processing_started:
-        #     # render_inline_processing()
-        #     st.session_state.processing_started = True
-        #     st.stop()
 
-        if st.session_state.get("is_processing") and st.session_state.processing_started is False:
-            st.session_state.processing_started = True
+        # ================= UI ================= #
 
-            i = st.session_state.processing_email_index
-            email = st.session_state.emails[i]
-            with st.spinner("Processing email..."):
-                process_email_api_call(email, i)
-
-            st.rerun()
-
-
-        
         st.markdown("### 📄 Email Details")
         st.divider()
-        
-        if st.session_state.selected_email_index is not None and st.session_state.selected_email_index < len(st.session_state.emails):
+
+        if st.session_state.selected_email_index is not None:
             i = st.session_state.selected_email_index
             email = st.session_state.emails[i]
-            
             render_email_details(email)
-            
+
             st.divider()
             col1, col2, col3 = st.columns([1, 2, 1])
 
+            state = st.session_state.processing_state
+            button_disabled = state != ProcessingState.IDLE
+
             with col2:
-                # Disable processing if this email was already processed successfully
-                already_processed = (
-                    st.session_state.get("processed_email_index") is not None
-                    and st.session_state.get("processed_email_index") == i
-                    and st.session_state.get("process_result")
-                    and st.session_state.get("process_result").get("status") in ["success", "incomplete"]
-
-                )
-
-                process_clicked = st.button(
-                    "Process Email",
-                    key=f"proc_btn_{i}",
-                    use_container_width=True,
-                    type="primary",
-                    disabled=already_processed or st.session_state.get("is_processing"),
-                )
-
-                # If already processed, show navigation to the next stage based on next_action
-                if already_processed:
-                    next_action = st.session_state.get("process_result", {}).get("next_action")
-                    if next_action == "match_suppliers":
-                        if st.button("Go to Supplier Matching", key=f"goto_match_{i}", use_container_width=True, type="primary"):
-                            st.session_state["tab_unlocked"][2] = True
-                            st.session_state.current_tab = 2
-                            st.rerun()
-                    elif next_action == "send-followup":
-                        if st.button("Go to BOM Validation", key=f"goto_follow_{i}", use_container_width=True, type="primary"):
-                            st.session_state["tab_unlocked"][3] = True
-                            st.session_state.current_tab = 3
-                            st.rerun()
-
-                # When button is clicked, set processing flag and rerun
-                if process_clicked:
-                    st.session_state.is_processing = True
-                    st.session_state.processing_started = False
+                if st.button("Process Email", use_container_width=True, type="primary", disabled=button_disabled, key="process_email_btn"):
                     st.session_state.processing_email_index = i
-                    st.session_state.process_error = None
-                    st.session_state.process_success = False
+                    st.session_state.processing_state = ProcessingState.START_EXECUTION
                     st.rerun()
-            
-            
-            # Show success message if processing just completed successfully
-            if st.session_state.get("process_success") and not st.session_state.get("is_processing"):
-                result = st.session_state.process_result
-                if result and st.session_state.get("processed_email_index") == i:
-                    st.divider()
-                    if result.get("status") == "success":
-                        message = result.get("message", "Processing successful")
-                        st.success(f"{message}")
+
+            st.divider()
+
+            # ================= STATE MACHINE ================= #
+
+            # ────────────────────────────────────────────────
+            # START EXECUTION (1st API CALL)
+            # ────────────────────────────────────────────────
+            if state == ProcessingState.START_EXECUTION:
+                with st.spinner("Starting email processing..."):
+                    try:
+                        res = requests.post(
+                            f"{N8N_BASE_URL}process-single-email",
+                            json=email,
+                            timeout=300
+                        )
+                        res.raise_for_status()
+                        data = res.json()
+
+                        # Expected intermediate response
+                        # {
+                        #   executionID,
+                        #   resumeURL,
+                        #   status
+                        # }
+
+                        st.session_state.resume_url = data.get("resumeURL")
+                        st.session_state.status_message = data.get("status", "Processing...")
+
+                        st.session_state.processing_state = ProcessingState.SHOW_STATUS
+
+                    except Exception as e:
+                        st.session_state.process_error = str(e)
+                        st.session_state.processing_state = ProcessingState.ERROR
+
+                st.rerun()
+
+            # ────────────────────────────────────────────────
+            # SHOW INTERMEDIATE STATUS
+            # ────────────────────────────────────────────────
+            if state == ProcessingState.SHOW_STATUS:
+                st.info(st.session_state.status_message)
+
+                # Small delay so user sees it
+                time.sleep(1)
+
+                st.session_state.processing_state = ProcessingState.SECOND_INTERMEDIATE
+                st.rerun()
+
+            # ────────────────────────────────────────────────            # SECOND INTERMEDIATE (2nd API CALL)
+            # ────────────────────────────────────────────────
+            if state == ProcessingState.SECOND_INTERMEDIATE:
+                if st.session_state.status_message:
+                    st.info(st.session_state.status_message)
+
+                with st.spinner("Continuing processing..."):
+                    try:
+                        res = requests.post(st.session_state.resume_url, timeout=300)
+                        res.raise_for_status()
+                        data = res.json()
+
+                        # Expected second intermediate response
+                        # {
+                        #   executionID,
+                        #   resumeURL,
+                        #   status
+                        # }
+
+                        st.session_state.resume_url = data.get("resumeURL")
+                        st.session_state.status_message = data.get("status", "Processing...")
+
+                        st.session_state.processing_state = ProcessingState.SHOW_STATUS_2
+
+                    except Exception as e:
+                        st.session_state.process_error = str(e)
+                        st.session_state.processing_state = ProcessingState.ERROR
+
+                st.rerun()
+
+            # ────────────────────────────────────────────────
+            # SHOW SECOND INTERMEDIATE STATUS
+            # ────────────────────────────────────────────────
+            if state == ProcessingState.SHOW_STATUS_2:
+                st.info(st.session_state.status_message)
+
+                # Small delay so user sees it
+                time.sleep(1)
+
+                st.session_state.processing_state = ProcessingState.RESUME_EXECUTION
+                st.rerun()
+
+            # ────────────────────────────────────────────────            # RESUME EXECUTION (FINAL API CALL)
+            # ────────────────────────────────────────────────
+            if state == ProcessingState.RESUME_EXECUTION:
+                if st.session_state.status_message:
+                    st.info(st.session_state.status_message)
+
+                with st.spinner("Finalizing request..."):
+                    try:
+                        res = requests.post(st.session_state.resume_url, timeout=300)
+                        res.raise_for_status()
+                        response_data = res.json()
+
+                        if isinstance(response_data, list) and response_data:
+                            response_data = response_data[0]
+
+                        # Save final result
+                        st.session_state.process_result = response_data
+                        st.session_state.process_success = True
                         
-                        # Auto-navigate to next tab based on next_action
-                        next_action = result.get("next_action")
+                        # Update request_id and status in email object
+                        request_id = response_data.get("request_id")
+                        next_action = response_data.get("next_action")
+                        
+                        if request_id:
+                            st.session_state.current_request_id = request_id
+                            email_index = st.session_state.selected_email_index
+                            
+                            # Update the email object with request_id
+                            if email_index is not None and email_index < len(st.session_state.emails):
+                                st.session_state.emails[email_index]["request_id"] = request_id
+                            
+                            # Set status based on next_action
+                            if next_action == "match_suppliers":
+                                st.session_state.email_status_map[email_index] = "BOM Complete"
+                            elif next_action == "send-followup":
+                                st.session_state.email_status_map[email_index] = "BOM Incomplete"
+
+                        # Routing
                         if next_action == "match_suppliers":
-                            st.info("BOM Complete — Switching to Supplier Matching...")
                             st.session_state["tab_unlocked"][2] = True
-                            st.session_state.current_tab = 2
-                            # Reset processing flags
-                            st.session_state.process_success = False
-                            time.sleep(2)
-                            st.rerun()
-                # print(st.session_state.current_tab)
-            # Show error message if processing failed
-            if st.session_state.get("process_error") and not st.session_state.get("is_processing"):
-                st.divider()
-                st.error(f"Error processing email: {st.session_state.process_error}")
-                # Reset error flag after showing
-                if st.button("Dismiss Error", key="dismiss_error_btn"):
+
+                        elif next_action == "send-followup":
+                            st.session_state["tab_unlocked"][3] = True
+
+                        st.session_state.processing_state = ProcessingState.DONE
+                        st.session_state.show_completion_dialog = True
+
+                    except Exception as e:
+                        st.session_state.process_error = str(e)
+                        st.session_state.processing_state = ProcessingState.ERROR
+
+                st.rerun()
+
+            # ────────────────────────────────────────────────
+            # DONE STATE - Show success message and routing
+            # ────────────────────────────────────────────────
+            if state == ProcessingState.DONE:
+                result = st.session_state.process_result
+                next_action = result.get("next_action") if result else None
+                
+                # Show dialog on first completion
+                if st.session_state.get("show_completion_dialog", False):
+                    show_processing_complete_dialog(
+                        st.session_state.status_message,
+                        next_action
+                    )
+                else:
+                    # After dialog dismissed, handle navigation
+                    if next_action == "match_suppliers":
+                        st.session_state.current_tab = 2
+                        st.rerun()
+                    elif next_action == "send-followup":
+                        st.session_state.current_tab = 3
+                        st.rerun()
+
+            # ────────────────────────────────────────────────
+            # ERROR STATE
+            # ────────────────────────────────────────────────
+            if state == ProcessingState.ERROR:
+                if st.session_state.status_message:
+                    st.info(st.session_state.status_message)
+
+                st.error(f"❌ Processing failed: {st.session_state.process_error}")
+                if st.button("Reset", use_container_width=True):
+                    st.session_state.processing_state = ProcessingState.IDLE
                     st.session_state.process_error = None
+                    st.session_state.status_message = None
                     st.rerun()
-        else:
-            st.info("Select an email from Tab 1 to view details")
 
     # TAB 3: Supplier Matching
     elif st.session_state.current_tab == 2:
@@ -702,7 +856,24 @@ def dashboard():
             st.warning("BOM Incomplete — Follow-up Required")
             st.divider()
 
-            # BLOCKING PREP FLOW (mirrors supplier matching)
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                if not st.session_state.followup_preview:
+                    if st.button(
+                        "Prepare Follow-up",
+                        type="primary",
+                        use_container_width=True,
+                        disabled=st.session_state.get("is_preparing_followup")
+                    ):
+                        st.session_state.is_preparing_followup = True
+                        st.session_state.followup_prep_error = None
+                        st.rerun()
+                else:
+                    st.success("Follow-up prepared successfully")
+
+            st.divider()
+
+            # BLOCKING PREP FLOW (mirrors supplier matching) - Rendered below button
             if st.session_state.get("is_preparing_followup"):
                 with st.spinner("Preparing follow-up email..."):
                     try:
@@ -721,21 +892,6 @@ def dashboard():
                         st.session_state.is_preparing_followup = False
 
                 st.rerun()
-
-            col1, col2, col3 = st.columns([1, 2, 1])
-            with col2:
-                if not st.session_state.followup_preview:
-                    if st.button(
-                        "Prepare Follow-up",
-                        type="primary",
-                        use_container_width=True,
-                        disabled=st.session_state.get("is_preparing_followup")
-                    ):
-                        st.session_state.is_preparing_followup = True
-                        st.session_state.followup_prep_error = None
-                        st.rerun()
-                else:
-                    st.success("Follow-up prepared successfully")
 
             
             # Show error if preparation failed
