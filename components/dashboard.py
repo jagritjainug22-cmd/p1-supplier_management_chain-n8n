@@ -14,6 +14,18 @@ class ProcessingState(str, Enum):
     RESUME_EXECUTION = "resume_execution"
     DONE = "done"
     ERROR = "error"
+    # Supplier matching states
+    SUPPLIER_START = "supplier_start"
+    SUPPLIER_SHOW_1 = "supplier_show_1"
+    SUPPLIER_CALL_2 = "supplier_call_2"
+    SUPPLIER_SHOW_2 = "supplier_show_2"
+    SUPPLIER_CALL_3 = "supplier_call_3"
+    SUPPLIER_SHOW_3 = "supplier_show_3"
+    SUPPLIER_CALL_4 = "supplier_call_4"
+    SUPPLIER_SHOW_4 = "supplier_show_4"
+    SUPPLIER_FINAL = "supplier_final"
+    SUPPLIER_DONE = "supplier_done"
+    SUPPLIER_ERROR = "supplier_error"
 
 
 def load_lottie_file(filepath):
@@ -153,6 +165,25 @@ def show_processing_complete_dialog(status_message, next_action):
             st.session_state.show_completion_dialog = False
             st.rerun()
 
+@st.dialog("Supplier Matching Complete")
+def show_supplier_matching_complete_dialog():
+    """Show supplier matching completion dialog"""
+    st.success("✅ Supplier matching complete!")
+    
+    st.info(f"**Status:** Suppliers matched")
+    
+    st.divider()
+    
+    st.markdown("**Next Action:** Select suppliers and send RFIs")
+    
+    st.divider()
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if st.button("OK", use_container_width=True, type="primary"):
+            st.session_state.show_supplier_completion_dialog = False
+            st.rerun()
+
 @st.dialog("Follow-up Email Preview")
 def show_followup_dialog(preview):
     if isinstance(preview, list):
@@ -189,28 +220,7 @@ def fetch_status_from_sheet(request_id):
     return "Status unavailable"
 
 
-def trigger_supplier_matching(request_id):
-    """Trigger supplier matching workflow"""
-    with st.spinner("Matching suppliers..."):
-        res = requests.post(
-            f"{N8N_BASE_URL}supplier-matching",
-            json={"request_id": request_id},
-            timeout=240
-        )
-        res.raise_for_status()
-
-        if not res.text.strip():
-            return []
-
-        data = res.json()
-
-        if isinstance(data, dict) and "item_code" in data:
-            return [data]
-
-        if isinstance(data, list):
-            return data
-
-        return []
+# Removed synchronous trigger_supplier_matching - now using state machine
 
 
 def render_supplier_selection_table(item, email_index):
@@ -439,7 +449,13 @@ def dashboard():
         "resume_url": None,
         "status_message": None,
         "process_result": None,
-        "process_error" : None   
+        "process_error" : None,
+        # Supplier matching state variables
+        "supplier_matching_state": ProcessingState.IDLE,
+        "supplier_resume_url": None,
+        "supplier_status_message": None,
+        "supplier_matching_error": None,
+        "show_supplier_completion_dialog": False
     }.items():
         st.session_state.setdefault(k, v)
 
@@ -747,21 +763,27 @@ def dashboard():
         result = st.session_state.process_result
         
         if result and result.get("next_action") == "match_suppliers":
+            # Determine whether the current processed email matches the selected one
+            processed_for_current = (
+                st.session_state.get("processed_email_index") is not None
+                and st.session_state.get("selected_email_index") is not None
+                and st.session_state.get("processed_email_index") == st.session_state.get("selected_email_index")
+            )
+
+            # If RFIs were already sent for this request, disable matching and offer navigation to RFI Summary
+            match_disabled = bool(st.session_state.get("rfi_sent") and processed_for_current)
+
+            state = st.session_state.supplier_matching_state
+            button_disabled = state != ProcessingState.IDLE or match_disabled
+            
+            # Debug: Show current state
+            print(f"DEBUG - Tab 3 - Current supplier matching state: {state}")
+            print(f"DEBUG - Tab 3 - Button disabled: {button_disabled}")
+
             col1, col2, col3 = st.columns([1, 2, 1])
             with col2:
-                # Determine whether the current processed email matches the selected one
-                processed_for_current = (
-                    st.session_state.get("processed_email_index") is not None
-                    and st.session_state.get("selected_email_index") is not None
-                    and st.session_state.get("processed_email_index") == st.session_state.get("selected_email_index")
-                )
-
-                # If RFIs were already sent for this request, disable matching and offer navigation to RFI Summary
-                match_disabled = bool(st.session_state.get("rfi_sent") and processed_for_current)
-
-                if st.button("Match Suppliers", key=f"match_btn", use_container_width=True, type="primary", disabled=match_disabled):
-                    matches = trigger_supplier_matching(st.session_state.current_request_id)
-                    st.session_state.supplier_matches = matches
+                if st.button("Match Suppliers", key=f"match_btn", use_container_width=True, type="primary", disabled=button_disabled):
+                    st.session_state.supplier_matching_state = ProcessingState.SUPPLIER_START
                     st.session_state.selected_suppliers = {}
                     st.rerun()
 
@@ -772,7 +794,222 @@ def dashboard():
                         st.rerun()
             
             st.divider()
+
+            # ================= SUPPLIER MATCHING STATE MACHINE ================= #
             
+            # Debug: Check if we reach the state machine
+            print(f"DEBUG - Entering state machine with state: {state}")
+
+            # ──────────────────────────────────────────────────
+            # SUPPLIER START (1st API CALL)
+            # ──────────────────────────────────────────────────
+            if state == ProcessingState.SUPPLIER_START:
+                print("DEBUG - Inside SUPPLIER_START block")
+                with st.spinner("Starting supplier matching..."):
+                    try:
+                        print(f"DEBUG - About to call API: {N8N_BASE_URL}supplier-matching")
+                        print(f"DEBUG - With request_id: {st.session_state.current_request_id}")
+                        
+                        res = requests.post(
+                            f"{N8N_BASE_URL}supplier-matching",
+                            json={"request_id": st.session_state.current_request_id},
+                            timeout=300
+                        )
+                        print(f"DEBUG - API call completed, status code: {res.status_code}")
+                        res.raise_for_status()
+                        data = res.json()
+                        print(f"DEBUG - Response data: {data}")
+
+                        st.session_state.supplier_resume_url = data.get("resumeURL")
+                        st.session_state.supplier_status_message = data.get("status", "Processing...")
+                        
+                        # Debug: Show the resume URL
+                        print(f"DEBUG - First call response: {data}")
+                        print(f"DEBUG - Resume URL stored: {st.session_state.supplier_resume_url}")
+
+                        st.session_state.supplier_matching_state = ProcessingState.SUPPLIER_SHOW_1
+
+                    except Exception as e:
+                        st.session_state.supplier_matching_error = str(e)
+                        st.session_state.supplier_matching_state = ProcessingState.SUPPLIER_ERROR
+                        print(f"DEBUG - First call error: {str(e)}")
+
+                st.rerun()
+
+            # ──────────────────────────────────────────────────
+            # SHOW STATUS 1
+            # ──────────────────────────────────────────────────
+            if state == ProcessingState.SUPPLIER_SHOW_1:
+                st.info(st.session_state.supplier_status_message)
+                time.sleep(1)
+                st.session_state.supplier_matching_state = ProcessingState.SUPPLIER_CALL_2
+                st.rerun()
+
+            # ──────────────────────────────────────────────────
+            # CALL 2
+            # ──────────────────────────────────────────────────
+            if state == ProcessingState.SUPPLIER_CALL_2:
+                if st.session_state.supplier_status_message:
+                    st.info(st.session_state.supplier_status_message)
+
+                # Debug: Show what URL we're calling
+                print(f"DEBUG - Call 2 - About to POST to: {st.session_state.supplier_resume_url}")
+
+                with st.spinner("Continuing supplier matching..."):
+                    try:
+                        res = requests.post(st.session_state.supplier_resume_url, timeout=300)
+                        print(f"DEBUG - Call 2 - Response status: {res.status_code}")
+                        print(f"DEBUG - Call 2 - Response text: {res.text}")
+                        res.raise_for_status()
+                        data = res.json()
+                        print(f"DEBUG - Call 2 - Parsed response: {data}")
+                        print(f"DEBUG - Call 2 - Response type: {type(data)}")
+                        
+                        # Handle list response
+                        if isinstance(data, list) and len(data) > 0:
+                            data = data[0]
+
+                        st.session_state.supplier_resume_url = data.get("resumeURL")
+                        st.session_state.supplier_status_message = data.get("status", "Processing...")
+                        
+                        print(f"DEBUG - Call 2 - Resume URL: {st.session_state.supplier_resume_url}")
+                        print(f"DEBUG - Call 2 - Status message: {st.session_state.supplier_status_message}")
+                        
+                        if not st.session_state.supplier_resume_url:
+                            raise ValueError(f"No resumeURL in Call 2 response. Data: {data}")
+
+                        st.session_state.supplier_matching_state = ProcessingState.SUPPLIER_SHOW_2
+
+                    except Exception as e:
+                        st.session_state.supplier_matching_error = str(e)
+                        st.session_state.supplier_matching_state = ProcessingState.SUPPLIER_ERROR
+                        print(f"DEBUG - Call 2 - Error occurred: {str(e)}")
+
+                st.rerun()
+
+            # ──────────────────────────────────────────────────
+            # SHOW STATUS 2
+            # ──────────────────────────────────────────────────
+            if state == ProcessingState.SUPPLIER_SHOW_2:
+                st.info(st.session_state.supplier_status_message)
+                time.sleep(1)
+                st.session_state.supplier_matching_state = ProcessingState.SUPPLIER_CALL_3
+                st.rerun()
+
+            # ──────────────────────────────────────────────────
+            # CALL 3
+            # ──────────────────────────────────────────────────
+            if state == ProcessingState.SUPPLIER_CALL_3:
+                if st.session_state.supplier_status_message:
+                    st.info(st.session_state.supplier_status_message)
+
+                with st.spinner("Processing supplier data..."):
+                    try:
+                        res = requests.post(st.session_state.supplier_resume_url, timeout=300)
+                        res.raise_for_status()
+                        data = res.json()
+                        print(f"DEBUG - Call 3 - Response type: {type(data)}")
+                        
+                        # Handle list response
+                        if isinstance(data, list) and len(data) > 0:
+                            data = data[0]
+
+                        st.session_state.supplier_resume_url = data.get("resumeURL")
+                        st.session_state.supplier_status_message = data.get("status", "Processing...")
+                        
+                        print(f"DEBUG - Call 3 - Resume URL: {st.session_state.supplier_resume_url}")
+                        print(f"DEBUG - Call 3 - Status message: {st.session_state.supplier_status_message}")
+                        
+                        if not st.session_state.supplier_resume_url:
+                            raise ValueError(f"No resumeURL in Call 3 response. Data: {data}")
+
+                        st.session_state.supplier_matching_state = ProcessingState.SUPPLIER_SHOW_3
+
+                    except Exception as e:
+                        st.session_state.supplier_matching_error = str(e)
+                        st.session_state.supplier_matching_state = ProcessingState.SUPPLIER_ERROR
+
+                st.rerun()
+
+            # ──────────────────────────────────────────────────
+            # SHOW STATUS 3
+            # ──────────────────────────────────────────────────
+            if state == ProcessingState.SUPPLIER_SHOW_3:
+                st.info(st.session_state.supplier_status_message)
+                time.sleep(1)
+                st.session_state.supplier_matching_state = ProcessingState.SUPPLIER_CALL_4
+                st.rerun()
+
+            # ──────────────────────────────────────────────────
+            # CALL 4 (FINAL CALL)
+            # ──────────────────────────────────────────────────
+            if state == ProcessingState.SUPPLIER_CALL_4:
+                print("DEBUG - Entered SUPPLIER_CALL_4 block")
+                if st.session_state.supplier_status_message:
+                    st.info(st.session_state.supplier_status_message)
+
+                print(f"DEBUG - Call 4 - About to POST to: {st.session_state.supplier_resume_url}")
+                
+                with st.spinner("Finalizing supplier matches..."):
+                    try:
+                        res = requests.post(st.session_state.supplier_resume_url, timeout=300)
+                        res.raise_for_status()
+                        matches = res.json()
+                        print(f"DEBUG - Call 4 - Response type: {type(matches)}")
+                        print(f"DEBUG - Call 4 - Response data: {matches}")
+                        
+                        # Handle response format - this is the FINAL data
+                        if not matches:
+                            matches = []
+                        elif isinstance(matches, dict) and "item_code" in matches:
+                            matches = [matches]
+                        elif isinstance(matches, list):
+                            matches = matches
+                        else:
+                            matches = []
+
+                        st.session_state.supplier_matches = matches
+                        
+                        # Update email status
+                        email_index = st.session_state.selected_email_index
+                        if email_index is not None:
+                            st.session_state.email_status_map[email_index] = "Suppliers matched"
+
+                        st.session_state.supplier_matching_state = ProcessingState.SUPPLIER_DONE
+                        st.session_state.show_supplier_completion_dialog = True
+
+                    except Exception as e:
+                        st.session_state.supplier_matching_error = str(e)
+                        st.session_state.supplier_matching_state = ProcessingState.SUPPLIER_ERROR
+                        print(f"DEBUG - Call 4 - Error occurred: {str(e)}")
+
+                st.rerun()
+
+            # ──────────────────────────────────────────────────
+            # DONE STATE
+            # ──────────────────────────────────────────────────
+            if state == ProcessingState.SUPPLIER_DONE:
+                # Show dialog on first completion
+                if st.session_state.get("show_supplier_completion_dialog", False):
+                    show_supplier_matching_complete_dialog()
+
+            # ──────────────────────────────────────────────────
+            # ERROR STATE
+            # ──────────────────────────────────────────────────
+            if state == ProcessingState.SUPPLIER_ERROR:
+                if st.session_state.supplier_status_message:
+                    st.info(st.session_state.supplier_status_message)
+
+                st.error(f"❌ Supplier matching failed: {st.session_state.supplier_matching_error}")
+                if st.button("Reset", use_container_width=True, key="reset_supplier_error"):
+                    st.session_state.supplier_matching_state = ProcessingState.IDLE
+                    st.session_state.supplier_matching_error = None
+                    st.session_state.supplier_status_message = None
+                    st.rerun()
+
+            # ──────────────────────────────────────────────────
+            # DISPLAY SUPPLIER MATCHES
+            # ──────────────────────────────────────────────────
             if st.session_state.supplier_matches:
                 st.markdown("### Bill of Materials (BOM)")
                 st.divider()
