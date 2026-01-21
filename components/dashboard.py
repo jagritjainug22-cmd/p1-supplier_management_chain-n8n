@@ -26,6 +26,14 @@ class ProcessingState(str, Enum):
     SUPPLIER_FINAL = "supplier_final"
     SUPPLIER_DONE = "supplier_done"
     SUPPLIER_ERROR = "supplier_error"
+    # RFI sending states
+    RFI_START = "rfi_start"
+    RFI_SHOW_1 = "rfi_show_1"
+    RFI_CALL_2 = "rfi_call_2"
+    RFI_SHOW_2 = "rfi_show_2"
+    RFI_CALL_3 = "rfi_call_3"
+    RFI_DONE = "rfi_done"
+    RFI_ERROR = "rfi_error"
 
 
 def load_lottie_file(filepath):
@@ -182,6 +190,25 @@ def show_supplier_matching_complete_dialog():
     with col2:
         if st.button("OK", use_container_width=True, type="primary"):
             st.session_state.show_supplier_completion_dialog = False
+            st.rerun()
+
+@st.dialog("RFI Distribution Complete")
+def show_rfi_complete_dialog():
+    """Show RFI sending completion dialog"""
+    st.success("✅ RFI distribution complete!")
+    
+    st.info(f"**Status:** RFIs sent successfully")
+    
+    st.divider()
+    
+    st.markdown("**Next Action:** View RFI Summary")
+    
+    st.divider()
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if st.button("OK", use_container_width=True, type="primary"):
+            st.session_state.show_rfi_completion_dialog = False
             st.rerun()
 
 @st.dialog("Follow-up Email Preview")
@@ -455,7 +482,14 @@ def dashboard():
         "supplier_resume_url": None,
         "supplier_status_message": None,
         "supplier_matching_error": None,
-        "show_supplier_completion_dialog": False
+        "show_supplier_completion_dialog": False,
+        # RFI sending state variables
+        "rfi_sending_state": ProcessingState.IDLE,
+        "rfi_resume_url": None,
+        "rfi_status_message": None,
+        "rfi_sending_error": None,
+        "show_rfi_completion_dialog": False,
+        "rfi_payload": None
     }.items():
         st.session_state.setdefault(k, v)
 
@@ -1022,7 +1056,8 @@ def dashboard():
                 col1, col2, col3 = st.columns([1, 2, 1])
                 with col2:
                     # Disable sending RFIs if RFIs were already sent for this processed request
-                    send_disabled = bool(st.session_state.get("rfi_sent") and processed_for_current)
+                    rfi_state = st.session_state.rfi_sending_state
+                    send_disabled = bool(st.session_state.get("rfi_sent") and processed_for_current) or rfi_state != ProcessingState.IDLE
 
                     if st.button("Send RFIs", key=f"submit_rfi_btn", use_container_width=True, type="primary", disabled=send_disabled):
                         st.session_state.active_item = None
@@ -1053,29 +1088,183 @@ def dashboard():
                         if not payload:
                             st.error("No suppliers with email addresses selected")
                         else:
-                            with st.spinner("Sending RFIs..."):
-                                res = requests.post(
-                                    f"{N8N_BASE_URL}send-RFI",
-                                    json=payload,
-                                    timeout=180
-                                )
-                                res.raise_for_status()
-                                data = res.json()
-                            st.session_state.rfi_result = data[0]
-                            st.session_state.rfi_sent = True
-                            latest_status = fetch_status_from_sheet(st.session_state.current_request_id)
-                            st.session_state.email_status_map[st.session_state.selected_email_index] = latest_status
-
+                            # Store payload and metadata for state machine
+                            st.session_state.rfi_payload = payload
                             st.session_state.suppliers_without_email = suppliers_without_email
                             st.session_state.suppliers_contacted_list = suppliers_contacted_list
-                            st.session_state["tab_unlocked"][4] = True
-                            st.session_state.current_tab = 4
+                            st.session_state.rfi_sending_state = ProcessingState.RFI_START
                             st.rerun()
-                    if send_disabled:
+
+                    if send_disabled and st.session_state.get("rfi_sent"):
                         if st.button("View RFI Summary", key="view_rfi_summary_btn", use_container_width=True, type="primary"):
                             st.session_state["tab_unlocked"][4] = True
                             st.session_state.current_tab = 4
                             st.rerun()
+
+            # ================= RFI SENDING STATE MACHINE ================= #
+
+            print(f"DEBUG - RFI State: {st.session_state.rfi_sending_state}")
+
+            # ──────────────────────────────────────────────────
+            # RFI START (1st API CALL)
+            # ──────────────────────────────────────────────────
+            if rfi_state == ProcessingState.RFI_START:
+                print("DEBUG - Inside RFI_START block")
+                with st.spinner("Starting RFI distribution..."):
+                    try:
+                        print(f"DEBUG - About to call send-RFI API")
+                        print(f"DEBUG - Payload: {st.session_state.rfi_payload}")
+                        
+                        res = requests.post(
+                            f"{N8N_BASE_URL}send-RFI",
+                            json=st.session_state.rfi_payload,
+                            timeout=300
+                        )
+                        print(f"DEBUG - RFI Call 1 - Status code: {res.status_code}")
+                        res.raise_for_status()
+                        data = res.json()
+                        print(f"DEBUG - RFI Call 1 - Response: {data}")
+
+                        # Handle list response
+                        if isinstance(data, list) and len(data) > 0:
+                            data = data[0]
+
+                        st.session_state.rfi_resume_url = data.get("resumeURL")
+                        st.session_state.rfi_status_message = data.get("status", "Processing...")
+                        
+                        print(f"DEBUG - RFI Call 1 - Resume URL: {st.session_state.rfi_resume_url}")
+
+                        st.session_state.rfi_sending_state = ProcessingState.RFI_SHOW_1
+
+                    except Exception as e:
+                        st.session_state.rfi_sending_error = str(e)
+                        st.session_state.rfi_sending_state = ProcessingState.RFI_ERROR
+                        print(f"DEBUG - RFI Call 1 error: {str(e)}")
+
+                st.rerun()
+
+            # ──────────────────────────────────────────────────
+            # SHOW STATUS 1
+            # ──────────────────────────────────────────────────
+            if rfi_state == ProcessingState.RFI_SHOW_1:
+                st.info(st.session_state.rfi_status_message)
+                time.sleep(1)
+                st.session_state.rfi_sending_state = ProcessingState.RFI_CALL_2
+                st.rerun()
+
+            # ──────────────────────────────────────────────────
+            # CALL 2
+            # ──────────────────────────────────────────────────
+            if rfi_state == ProcessingState.RFI_CALL_2:
+                if st.session_state.rfi_status_message:
+                    st.info(st.session_state.rfi_status_message)
+
+                print(f"DEBUG - RFI Call 2 - About to POST to: {st.session_state.rfi_resume_url}")
+
+                with st.spinner("Processing RFI distribution..."):
+                    try:
+                        res = requests.post(st.session_state.rfi_resume_url, timeout=300)
+                        print(f"DEBUG - RFI Call 2 - Status code: {res.status_code}")
+                        res.raise_for_status()
+                        data = res.json()
+                        print(f"DEBUG - RFI Call 2 - Response: {data}")
+                        
+                        # Handle list response
+                        if isinstance(data, list) and len(data) > 0:
+                            data = data[0]
+
+                        st.session_state.rfi_resume_url = data.get("resumeURL")
+                        st.session_state.rfi_status_message = data.get("status", "Processing...")
+                        
+                        print(f"DEBUG - RFI Call 2 - Resume URL: {st.session_state.rfi_resume_url}")
+                        
+                        if not st.session_state.rfi_resume_url:
+                            raise ValueError(f"No resumeURL in RFI Call 2 response. Data: {data}")
+
+                        st.session_state.rfi_sending_state = ProcessingState.RFI_SHOW_2
+
+                    except Exception as e:
+                        st.session_state.rfi_sending_error = str(e)
+                        st.session_state.rfi_sending_state = ProcessingState.RFI_ERROR
+                        print(f"DEBUG - RFI Call 2 error: {str(e)}")
+
+                st.rerun()
+
+            # ──────────────────────────────────────────────────
+            # SHOW STATUS 2
+            # ──────────────────────────────────────────────────
+            if rfi_state == ProcessingState.RFI_SHOW_2:
+                st.info(st.session_state.rfi_status_message)
+                time.sleep(1)
+                st.session_state.rfi_sending_state = ProcessingState.RFI_CALL_3
+                st.rerun()
+
+            # ──────────────────────────────────────────────────
+            # CALL 3 (FINAL CALL)
+            # ──────────────────────────────────────────────────
+            if rfi_state == ProcessingState.RFI_CALL_3:
+                print("DEBUG - Entered RFI_CALL_3 block")
+                if st.session_state.rfi_status_message:
+                    st.info(st.session_state.rfi_status_message)
+
+                print(f"DEBUG - RFI Call 3 - About to POST to: {st.session_state.rfi_resume_url}")
+                
+                with st.spinner("Finalizing RFI distribution..."):
+                    try:
+                        res = requests.post(st.session_state.rfi_resume_url, timeout=300)
+                        res.raise_for_status()
+                        rfi_data = res.json()
+                        print(f"DEBUG - RFI Call 3 - Response type: {type(rfi_data)}")
+                        print(f"DEBUG - RFI Call 3 - Response data: {rfi_data}")
+                        
+                        # Handle response format
+                        if isinstance(rfi_data, list) and len(rfi_data) > 0:
+                            rfi_data = rfi_data[0]
+
+                        st.session_state.rfi_result = rfi_data
+                        st.session_state.rfi_sent = True
+                        
+                        # Update email status
+                        email_index = st.session_state.selected_email_index
+                        if email_index is not None:
+                            st.session_state.email_status_map[email_index] = "RFIs sent"
+
+                        st.session_state.rfi_sending_state = ProcessingState.RFI_DONE
+                        st.session_state.show_rfi_completion_dialog = True
+
+                    except Exception as e:
+                        st.session_state.rfi_sending_error = str(e)
+                        st.session_state.rfi_sending_state = ProcessingState.RFI_ERROR
+                        print(f"DEBUG - RFI Call 3 error: {str(e)}")
+
+                st.rerun()
+
+            # ──────────────────────────────────────────────────
+            # DONE STATE
+            # ──────────────────────────────────────────────────
+            if rfi_state == ProcessingState.RFI_DONE:
+                # Show dialog on first completion
+                if st.session_state.get("show_rfi_completion_dialog", False):
+                    show_rfi_complete_dialog()
+                else:
+                    # After dialog dismissed, navigate to RFI Summary
+                    st.session_state["tab_unlocked"][4] = True
+                    st.session_state.current_tab = 4
+                    st.rerun()
+
+            # ──────────────────────────────────────────────────
+            # ERROR STATE
+            # ──────────────────────────────────────────────────
+            if rfi_state == ProcessingState.RFI_ERROR:
+                if st.session_state.rfi_status_message:
+                    st.info(st.session_state.rfi_status_message)
+
+                st.error(f"❌ RFI distribution failed: {st.session_state.rfi_sending_error}")
+                if st.button("Reset", use_container_width=True, key="reset_rfi_error"):
+                    st.session_state.rfi_sending_state = ProcessingState.IDLE
+                    st.session_state.rfi_sending_error = None
+                    st.session_state.rfi_status_message = None
+                    st.rerun()
         else:
             st.info("Process an email with BOM Complete status to access supplier matching")
 
