@@ -324,62 +324,128 @@ def reset_processing_states():
 
 
 def render_supplier_selection_table(item, email_index):
-    """Render supplier selection table with checkboxes"""
+    """Render supplier selection table with enhanced styling and features"""
     st.markdown(f"#### {item['item_code']} — {item['item_description']}")
     st.markdown(f"*Spec:* {item['item_specification']} | *Material:* {item['item_material']}")
     st.divider()
 
     selected = st.session_state.setdefault("selected_suppliers", {})
     
-    # Display table headers
-    cols = st.columns([0.8, 0.5, 2, 2, 1.5, 1.5, 1.2, 0.8, 0.6])
-    
-    with cols[0]:
-        st.write("**Select**")
-    with cols[1]:
-        st.write("**Rank**")
-    with cols[2]:
-        st.write("**Supplier**")
-    with cols[3]:
-        st.write("**Email**")
-    with cols[4]:
-        st.write("**City**")
-    with cols[5]:
-        st.write("**Country**")
-    with cols[6]:
-        st.write("**Confidence**")
-    with cols[7]:
-        st.write("**Score**")
-    with cols[8]:
-        st.write("**Rec**")
+    # Add select all / deselect all buttons
+    col1, col2, col3, col4 = st.columns([1, 1, 1, 3])
+    with col1:
+        if st.button("✓ Select All", key=f"select_all_{item['item_code']}_{email_index}", use_container_width=True):
+            for s in item.get("suppliers", []):
+                key = f"{item['item_code']}::{s['supplier_id']}"
+                selected[key] = True
+            st.rerun()
+    with col2:
+        if st.button("✗ Clear All", key=f"clear_all_{item['item_code']}_{email_index}", use_container_width=True):
+            for s in item.get("suppliers", []):
+                key = f"{item['item_code']}::{s['supplier_id']}"
+                selected[key] = False
+            st.rerun()
+    with col3:
+        selected_count = sum(1 for s in item.get("suppliers", []) if selected.get(f"{item['item_code']}::{s['supplier_id']}", False))
+        st.info(f"**{selected_count}** selected")
     
     st.divider()
     
-    # Display each supplier row with checkbox
-    for s in item.get("suppliers", []):
+    # Helper function to get confidence badge color
+    def get_confidence_badge(confidence):
+        conf = str(confidence).upper()
+        if conf == 'HIGH':
+            return '<span style="background-color: #28a745; color: white; padding: 4px 12px; border-radius: 12px; font-weight: 600; font-size: 0.85em;">🔥 HIGH</span>'
+        elif conf == 'MEDIUM':
+            return '<span style="background-color: #ffc107; color: black; padding: 4px 12px; border-radius: 12px; font-weight: 600; font-size: 0.85em;">⚡ MEDIUM</span>'
+        elif conf == 'LOW':
+            return '<span style="background-color: #dc3545; color: white; padding: 4px 12px; border-radius: 12px; font-weight: 600; font-size: 0.85em;">⚠️ LOW</span>'
+        else:
+            return '<span style="background-color: #6c757d; color: white; padding: 4px 12px; border-radius: 12px; font-weight: 600; font-size: 0.85em;">N/A</span>'
+    
+    # Display each supplier as a card
+    for idx, s in enumerate(item.get("suppliers", [])):
         key = f"{item['item_code']}::{s['supplier_id']}"
         is_checked = selected.get(key, s.get("rank") == 1)
         
-        cols = st.columns([0.8, 0.5, 2, 2, 1.5, 1.5, 1.2, 0.8, 0.6])
+        # Determine card border color based on rank
+        if s.get("rank") == 1:
+            border_color = "#28a745"  # Green for rank 1
+            border_style = "3px solid"
+        elif s.get("recommended"):
+            border_color = "#ffc107"  # Yellow for recommended
+            border_style = "2px solid"
+        else:
+            border_color = "#dee2e6"  # Gray for others
+            border_style = "1px solid"
+        
+        # Card container with styling
+        card_style = f"""
+        <div style="
+            border: {border_style} {border_color};
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 12px;
+            background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            transition: all 0.3s ease;
+        ">
+        """
+        
+        st.markdown(card_style, unsafe_allow_html=True)
+        
+        cols = st.columns([0.5, 0.4, 2, 2.5, 1.2, 1.2, 1.5, 0.8])
         
         with cols[0]:
-            selected[key] = st.checkbox("", value=is_checked, key=f"chk_{key}_{email_index}")
+            selected[key] = st.checkbox("", value=is_checked, key=f"chk_{key}_{email_index}", label_visibility="collapsed")
+        
         with cols[1]:
-            st.write(f"#{s['rank']}")
+            # Rank badge
+            if s.get("rank") == 1:
+                st.markdown('<div style="background: linear-gradient(135deg, #28a745, #20c997); color: white; padding: 8px; border-radius: 50%; text-align: center; font-weight: bold; font-size: 1.1em; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;">🥇</div>', unsafe_allow_html=True)
+            elif s.get("rank") == 2:
+                st.markdown('<div style="background: linear-gradient(135deg, #6c757d, #adb5bd); color: white; padding: 8px; border-radius: 50%; text-align: center; font-weight: bold; font-size: 1.1em; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;">🥈</div>', unsafe_allow_html=True)
+            elif s.get("rank") == 3:
+                st.markdown('<div style="background: linear-gradient(135deg, #cd7f32, #d4a76a); color: white; padding: 8px; border-radius: 50%; text-align: center; font-weight: bold; font-size: 1.1em; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;">🥉</div>', unsafe_allow_html=True)
+            else:
+                st.markdown(f'<div style="background: #f8f9fa; color: #495057; padding: 8px; border-radius: 50%; text-align: center; font-weight: bold; border: 2px solid #dee2e6; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;">#{s.get("rank")}</div>', unsafe_allow_html=True)
+        
         with cols[2]:
-            st.write(s['supplier_name'])
+            st.markdown(f"**{s['supplier_name']}**")
+            if s.get('recommended'):
+                st.markdown('<span style="background-color: #ffc107; color: black; padding: 2px 8px; border-radius: 8px; font-size: 0.75em; font-weight: 600;">⭐ RECOMMENDED</span>', unsafe_allow_html=True)
+        
         with cols[3]:
-            st.write(s.get('supplier_email', 'N/A'))
+            if s.get('supplier_email'):
+                st.markdown(f"📧 {s.get('supplier_email')}")
+            else:
+                st.markdown('<span style="color: #dc3545;">⚠️ No email</span>', unsafe_allow_html=True)
+        
         with cols[4]:
-            st.write(s.get('supplier_city', 'N/A'))
+            st.markdown(f"📍 {s.get('supplier_city', 'N/A')}")
+        
         with cols[5]:
-            st.write(s.get('supplier_country', 'N/A'))
+            st.markdown(f"🌍 {s.get('supplier_country', 'N/A')}")
+        
         with cols[6]:
-            st.write(s.get('confidence', 'N/A').upper())
+            st.markdown(get_confidence_badge(s.get('confidence', 'N/A')), unsafe_allow_html=True)
+        
         with cols[7]:
-            st.write(str(s.get('match_score', 'N/A')))
-        with cols[8]:
-            st.write("⭐" if s.get('recommended') else "")
+            score = s.get('match_score', 'N/A')
+            if score != 'N/A':
+                score_val = float(score)
+                if score_val >= 80:
+                    color = "#28a745"
+                elif score_val >= 60:
+                    color = "#ffc107"
+                else:
+                    color = "#dc3545"
+                st.markdown(f'<div style="background-color: {color}; color: white; padding: 6px 12px; border-radius: 8px; text-align: center; font-weight: bold;">{score}</div>', unsafe_allow_html=True)
+            else:
+                st.write(score)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        st.write("")  # Small spacing
     
     st.divider()
     st.session_state.selected_suppliers = selected
@@ -588,7 +654,7 @@ def dashboard():
         # st.selectbox("Animation position", ["left", "center", "right"], index=["left", "center", "right"].index(st.session_state.get("lottie_position", "center")), key="lottie_position")
 
     # Tab navigation - only show Inbox (0) and current active tab
-    tab_names = ["Inbox", "Request Review", "Supplier Shortlisting", "BOM Validation", "RFI Review"]
+    tab_names = ["Requests", "Request Review", "Supplier Shortlisting", "BOM Validation", "RFI Review"]
 
     # Always show Inbox (index 0) + current active tab only
     visible_indices = [0]  # Always include Inbox
