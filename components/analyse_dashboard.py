@@ -34,33 +34,36 @@ def render_recent_request_card(request_data):
     """Render the most recent request as a highlighted card"""
     st.markdown("""
         <div style="
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            padding: 24px;
+            background: linear-gradient(135deg, #d4a574 0%, #c89968 100%);
+            padding: 1rem;
             border-radius: 16px;
             color: white;
-            box-shadow: 0 8px 24px rgba(102, 126, 234, 0.4);
-            margin-bottom: 24px;
+            box-shadow: 0 8px 24px rgba(212, 165, 116, 0.4);
+            margin-bottom: 1rem;
+                margin-top: 1.2rem;
+            font-family: 'Roboto', sans-serif;
+            width: 22%;
         ">
-            <h3 style="margin: 0; color: white;">🎯 Most Recent Request</h3>
+            <p style="margin: 0; color: white; font-size: 1.2rem; margin-left: 1rem;">Most Recent Request</p>
         </div>
     """, unsafe_allow_html=True)
     
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("Request ID", request_data.get('request_id', 'N/A'))
+        st.markdown(f"<p style='font-size: 0.85rem; margin-bottom: 0; color: #7f8c8d;'>Request ID</p><p style='font-size: 1.1rem; font-weight: 600; margin-top: 0.2rem;'>{request_data.get('request_id', 'N/A')}</p>", unsafe_allow_html=True)
     with col2:
-        st.metric("Project Code", request_data.get('project_code', 'N/A'))
+        st.markdown(f"<p style='font-size: 0.85rem; margin-bottom: 0; color: #7f8c8d;'>Project Code</p><p style='font-size: 1.1rem; font-weight: 600; margin-top: 0.2rem;'>{request_data.get('project_code', 'N/A')}</p>", unsafe_allow_html=True)
     with col3:
         status = request_data.get('status', 'N/A')
         if status == "RFIs sent":
-            st.success(f"✅ {status}")
+            st.markdown(f"<p style='font-size: 0.85rem; margin-bottom: 0; color: #7f8c8d;'>Status</p><p style='font-size: 1rem; font-weight: 600; margin-top: 0.2rem; color: #28a745;'>✅ {status}</p>", unsafe_allow_html=True)
         elif status == "Follow-up sent":
-            st.warning(f"⏳ {status}")
+            st.markdown(f"<p style='font-size: 0.85rem; margin-bottom: 0; color: #7f8c8d;'>Status</p><p style='font-size: 1rem; font-weight: 600; margin-top: 0.2rem; color: #ffc107;'>⏳ {status}</p>", unsafe_allow_html=True)
         elif status == "Complete":
-            st.success(f"🎉 {status}")
+            st.markdown(f"<p style='font-size: 0.85rem; margin-bottom: 0; color: #7f8c8d;'>Status</p><p style='font-size: 1rem; font-weight: 600; margin-top: 0.2rem; color: #28a745;'>🎉 {status}</p>", unsafe_allow_html=True)
         else:
-            st.info(f"📝 {status}")
+            st.markdown(f"<p style='font-size: 0.85rem; margin-bottom: 0; color: #7f8c8d;'>Status</p><p style='font-size: 1rem; font-weight: 600; margin-top: 0.2rem; color: #17a2b8;'>📝 {status}</p>", unsafe_allow_html=True)
     with col4:
         created_at = request_data.get('created_at', 'N/A')
         # Convert pandas Timestamp to string if needed
@@ -68,9 +71,8 @@ def render_recent_request_card(request_data):
             created_at = created_at.strftime('%Y-%m-%d %H:%M')
         elif created_at != 'N/A':
             created_at = str(created_at)
-        st.metric("Created", created_at)
+        st.markdown(f"<p style='font-size: 0.85rem; margin-bottom: 0; color: #7f8c8d;'>Created</p><p style='font-size: 1.1rem; font-weight: 600; margin-top: 0.2rem;'>{created_at}</p>", unsafe_allow_html=True)
     
-    st.divider()
     
     # Show RFI Summary or Follow-up report if available in session
     col1, col2 = st.columns(2)
@@ -97,31 +99,82 @@ def render_recent_request_card(request_data):
 
 def analyse_dashboard():
     """Enhanced analyse dashboard with recent requests and pending items"""
-    # Scroll to top
-    st.markdown('<script>window.scrollTo(0, 0);</script>', unsafe_allow_html=True)
-    
-    # Custom CSS for tabs and dropdowns
+    # Add Google Fonts and Card Styles
     st.markdown("""
-        <style>
-        /* Span tab buttons wider */
-        div[data-baseweb="tab-list"] button {
-            flex-grow: 1;
-            min-width: 200px;
-        }
-        
-        /* Make dropdown cursors clickable */
-        div[data-baseweb="select"] {
-            cursor: pointer;
-        }
-        div[data-baseweb="select"] > div {
-            cursor: pointer;
-        }
-        </style>
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Inter:wght@400;600&family=Poppins:wght@500;700&family=Roboto+Mono:wght@400&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100..900;1,100..900&display=swap');
+    
+    .custom-card {
+        background: linear-gradient(135deg, #f5b3fd 0%, #f9879b 100%);
+        border-radius: 20px;
+        border-left: 5px solid rgba(0, 0, 0, 0.9);
+        padding: 0.5rem;
+        width: 80%;
+        min-height: 150px;
+        text-align: center;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.2), -3px 0 15px rgba(0,0,0,0.6);
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        margin-bottom: 1.2rem;
+        position: relative;
+    }
+    .custom-card:hover {
+        transform: translateY(-10px);
+        box-shadow: 0 15px 40px rgba(0,0,0,0.3), -3px 0 20px rgba(0,0,0,0.8);
+    }
+    .card-title {
+        font-size: 2rem;
+        font-weight: 700;
+        color: #1a1a1a;
+        margin-bottom: 0;
+        margin-left: 2rem;
+        text-align: left;
+        font-family: 'Playfair Display', serif;
+    }
+    .card-desc {
+        font-size: 1rem;
+        color: rgba(26,26,26,0.9);
+        text-align: left;
+        margin-left: 2rem;
+        margin-top: 0;
+        font-family: 'Roboto', 'Segoe UI', 'Poppins', sans-serif;
+    }
+    
+    /* Span tab buttons wider */
+    div[data-baseweb="tab-list"] button {
+        flex-grow: 1;
+        min-width: 200px;
+    }
+    
+    /* Make dropdown cursors clickable */
+    div[data-baseweb="select"] {
+        cursor: pointer;
+    }
+    div[data-baseweb="select"] > div {
+        cursor: pointer;
+    }
+    </style>
     """, unsafe_allow_html=True)
     
-    st.markdown("## 📈 Analytics Dashboard")
-    st.caption("Monitor procurement requests, track statuses, and analyze trends")
-    st.divider()
+    # Scroll to top of page
+    st.markdown('<script>window.scrollTo(0, 0);</script>', unsafe_allow_html=True)
+    
+    # Top navigation bar with title card
+    col1, col2, col3 = st.columns([0.0000001,4.5, 0.1])
+    
+    with col2:
+        st.markdown("""
+            <div class='custom-card'>
+                <div class='card-title'>Sourcing Insights</div>
+                <div class='card-desc'>
+                    Manage sourcing requests, track RFIs, and monitor follow-ups all in one place.
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
 
     # ---------- LOAD DATA ----------
     try:

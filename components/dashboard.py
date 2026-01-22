@@ -54,7 +54,7 @@ if lottie_animation is None:
 ANIMATION_DURATION_SECONDS = 10  # 121 frames @ ~60 FPS
 
 # You'll need to pass config from main.py or define here
-N8N_BASE_URL = "http://localhost:5678/webhook-test/"
+N8N_BASE_URL = "http://localhost:5678/webhook/"
 SHEET_ID = "1U6ml01UyidEPDYVqs994oSHV0eLaPX89yCG-QflD9Vc"
 
 # ================= ALL HELPER FUNCTIONS =================
@@ -118,29 +118,107 @@ def process_email_api_call(email, email_index):
 
 
 def render_email_details(email):
-    """Render email details"""
-    st.markdown("### Email Details")
-    st.markdown(f"**Subject:** {email.get('subject', 'N/A')}")
-    st.markdown(f"**From:** {email.get('from', {}).get('text', 'N/A')}")
+    """Render email details with styled containers"""
+    from datetime import datetime
     
+    # Extract email data
+    subject = email.get('subject', 'N/A')
+    from_text = email.get('from', {}).get('text', 'N/A')
+    
+    # Safely extract 'to' field
+    to_data = email.get('to', [])
+    if to_data and len(to_data) > 0 and isinstance(to_data, list):
+        to_text = to_data[0].get('text', 'N/A') if isinstance(to_data[0], dict) else 'N/A'
+    else:
+        to_text = 'N/A'
+    
+    # Format date
     date_str = email.get('date', 'N/A')
     if date_str != 'N/A':
         try:
-            from datetime import datetime
             date_obj = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
             formatted_date = date_obj.strftime("%B %d, %Y at %I:%M %p")
-            st.markdown(f"**Date:** {formatted_date}")
         except:
-            st.markdown(f"**Date:** {date_str}")
+            formatted_date = date_str
     else:
-        st.markdown(f"**Date:** {date_str}")
+        formatted_date = 'N/A'
     
-    st.divider()
-
+    # Subject section
+    st.markdown(
+        f"""
+        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px;">
+            <span style="display: inline-block; background-color: #000000; color: #ffffff; padding: 6px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; letter-spacing: 0.5px;">SUBJECT</span>
+            <span style="font-family: Poppins, sans-serif; font-size: 18px; font-weight: 600; color: #2c3e50;">{subject}</span>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    
+    # FROM field
+    st.markdown(
+        f"""
+        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px;">
+            <span style="display: inline-block; background-color: #000000; color: #ffffff; padding: 6px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; letter-spacing: 0.5px;">FROM</span>
+            <span style="font-family: Poppins, sans-serif; font-size: 18px; font-weight: 600; color: #2c3e50;">{from_text}</span>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    # DATE field
+    st.markdown(
+        f"""
+        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px;">
+            <span style="display: inline-block; background-color: #000000; color: #ffffff; padding: 6px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; letter-spacing: 0.5px;">DATE</span>
+            <span style="font-family: Poppins, sans-serif; font-size: 18px; font-weight: 600; color: #2c3e50;">{formatted_date}</span>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    # Email body label
+    st.markdown(
+        """
+        <div style="
+            display: inline-block;
+            background-color: #000000;
+            color: #ffffff;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            margin-bottom: 12px;
+        ">
+            EMAIL BODY
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    # Email content container
+    st.markdown(
+        """
+        <div style="
+            background-color: #ffffff;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 10px;
+            max-height: 400px;
+            overflow-y: auto;
+        ">
+        """,
+        unsafe_allow_html=True
+    )
+    
     if email.get("html"):
         st.components.v1.html(email["html"], height=400, scrolling=True)
     else:
-        st.text(email.get("text", ""))
+        st.markdown(f"<div style='font-family: Inter, sans-serif; color: #2c3e50; white-space: pre-wrap;'>{email.get('text', '')}</div>", unsafe_allow_html=True)
+    
+    # st.markdown("</div>", unsafe_allow_html=True)
 
 
 @st.dialog("Processing Complete")
@@ -233,11 +311,10 @@ def show_request_complete_dialog(request_id):
     
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        if st.button("View in Analytics Dashboard", use_container_width=True, type="primary"):
+        if st.button("View in Sourcing Insights", use_container_width=True, type="primary"):
             st.session_state.show_request_complete_dialog = False
-            # Navigate to analyse dashboard
-            st.session_state.show_dashboard = False
-            st.session_state.show_analyse = True
+            # Navigate to Dashboard tab (uses main.py's navigation system)
+            st.session_state.active_tab = "SourcingInsights"
             st.session_state.analyse_request_id = request_id
             st.rerun()
 
@@ -325,8 +402,8 @@ def reset_processing_states():
 
 def render_supplier_selection_table(item, email_index):
     """Render supplier selection table with enhanced styling and features"""
-    st.markdown(f"#### {item['item_code']} — {item['item_description']}")
-    st.markdown(f"*Spec:* {item['item_specification']} | *Material:* {item['item_material']}")
+    st.markdown(f"<h4 style='font-family: \"Poppins\", sans-serif; color: #2c3e50; font-weight: 600;'>{item['item_code']} — {item['item_description']}</h4>", unsafe_allow_html=True)
+    st.markdown(f"<p style='font-family: \"Inter\", sans-serif; color: #5a6c7d;'><em>Spec:</em> {item['item_specification']} | <em>Material:</em> {item['item_material']}</p>", unsafe_allow_html=True)
     st.divider()
 
     selected = st.session_state.setdefault("selected_suppliers", {})
@@ -334,13 +411,13 @@ def render_supplier_selection_table(item, email_index):
     # Add select all / deselect all buttons
     col1, col2, col3, col4 = st.columns([1, 1, 1, 3])
     with col1:
-        if st.button("✓ Select All", key=f"select_all_{item['item_code']}_{email_index}", use_container_width=True):
+        if st.button("✓ Select All", key=f"select_all_{item['item_code']}_{email_index}", width='content'):
             for s in item.get("suppliers", []):
                 key = f"{item['item_code']}::{s['supplier_id']}"
                 selected[key] = True
             st.rerun()
     with col2:
-        if st.button("✗ Clear All", key=f"clear_all_{item['item_code']}_{email_index}", use_container_width=True):
+        if st.button("✗ Clear All", key=f"clear_all_{item['item_code']}_{email_index}", width='content'):
             for s in item.get("suppliers", []):
                 key = f"{item['item_code']}::{s['supplier_id']}"
                 selected[key] = False
@@ -566,21 +643,73 @@ def render_processing_inline():
             key="inline_processing_once",
         )
     else:
-        st.spinner("Processing email...")
+        st.spinner("Processing request...")
 
 def dashboard():
     """Main email processing dashboard"""
+    # Add Google Fonts and Card Styles
+    st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Inter:wght@400;600&family=Poppins:wght@500;700&family=Roboto+Mono:wght@400&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100..900;1,100..900&display=swap');
+    
+    .custom-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 20px;
+        border-left: 5px solid rgba(0, 0, 0, 0.9);
+        padding: 1rem 1rem 1rem;
+        width: 80%;
+        min-height: 150px;
+        text-align: center;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.2), -3px 0 15px rgba(0,0,0,0.6);
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        margin-bottom: 1rem;
+        position: relative;
+    }
+    .custom-card:hover {
+        transform: translateY(-10px);
+        box-shadow: 0 15px 40px rgba(0,0,0,0.3), -3px 0 20px rgba(0,0,0,0.8);
+    }
+    .card-title {
+        font-size: 2rem;
+        font-weight: 700;
+        color: white;
+        margin-bottom: 0;
+        margin-left: 2rem;
+        text-align: left;
+        font-family: 'Playfair Display', serif;
+    }
+    .card-desc {
+        font-size: 1rem;
+        color: rgba(255,255,255,0.9);
+        text-align: left;
+        margin-left: 2rem;
+        margin-top: 0;
+        font-family: 'Roboto', 'Segoe UI', 'Poppins', sans-serif;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
     # Scroll to top of page
     st.markdown('<script>window.scrollTo(0, 0);</script>', unsafe_allow_html=True)
     
-    # Top navigation bar with title and logout
-    col1, col2, col3 = st.columns([1.6,4, 0.1])
+    # Top navigation bar with title card
+    col1, col2, col3 = st.columns([0.0000001,4.5, 0.1])
     
     with col2:
-        st.markdown("<h1 style='color: #2c3e50; margin-bottom: -10px;'>Supplier Discovery</h1>", unsafe_allow_html=True)
-    
-    st.markdown("<p style='color: #7f8c8d; text-align:center; margin-top: -10px;'>Manage requests, match suppliers, and send RFIs</p>", unsafe_allow_html=True)
-    st.divider()
+        st.markdown("""
+            <div class='custom-card'>
+                <div class='card-title'>Sourcing Automation</div>
+                <div class='card-desc'>
+                    Manage requests, validate BOMs, shortlist suppliers, and send RFIs — all in one place.
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+    # st.divider()
     
     # Auto-scroll to top when switching tabs
     st.write('<script>window.scrollTo(0, 0);</script>', unsafe_allow_html=True)
@@ -656,8 +785,8 @@ def dashboard():
     # Tab navigation - only show Inbox (0) and current active tab
     tab_names = ["Requests", "Request Review", "Supplier Shortlisting", "BOM Validation", "RFI Review"]
 
-    # Always show Inbox (index 0) + current active tab only
-    visible_indices = [0]  # Always include Inbox
+    # Always show Requests (index 0) + current active tab only
+    visible_indices = [0]  # Always include Requests
     if st.session_state.current_tab != 0:
         visible_indices.append(st.session_state.current_tab)
     
@@ -667,7 +796,7 @@ def dashboard():
             tab_name = tab_names[idx]
             with col:
                 is_active = st.session_state.current_tab == idx
-                # Disable inbox tab when on other tabs (can only return via action buttons)
+                # Disable requests tab when on other tabs (can only return via action buttons)
                 is_disabled = (idx == 0 and st.session_state.current_tab != 0)
                 if st.button(tab_name, use_container_width=True, key=f"tab_btn_{idx}", 
                             type="primary" if is_active else "secondary",
@@ -675,31 +804,35 @@ def dashboard():
                     st.session_state.current_tab = idx
                     st.rerun()
     
-    st.divider()
+    # st.divider()
 
     # TAB 1: Fetch Emails
     if st.session_state.current_tab == 0:
-        st.markdown("### Fetch Unread Emails")
-        st.divider()
         
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            if st.button("Fetch Unread Emails", use_container_width=True, type="primary", key="fetch_emails_btn"):
-                with st.spinner("Fetching unread emails..."):
-                    res = requests.post(f"{N8N_BASE_URL}process-emails", timeout=120)
-                    res.raise_for_status()
-                    st.session_state.emails = res.json() if res.text.strip() else []
-                
-                if not st.session_state.emails:
-                    st.info("No new emails received")
-                else:
-                    st.success(f"Found {len(st.session_state.emails)} unread email(s)")
+        st.markdown("""
+        <div style='margin-bottom: 20px; margin-top: 10px;'>
+            <p style='font-family: "Poppins", sans-serif; font-size: 1rem; color: #5a6c7d; font-weight: 500; line-height: 1.6;'>
+                Click to fetch unprocessed requests (last 24 hrs)
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Custom styled button
+        if st.button("Fetch Requests", key="fetch_emails_btn", type="primary"):
+            with st.spinner("Fetching unread requests..."):
+                res = requests.post(f"{N8N_BASE_URL}process-emails", timeout=120)
+                res.raise_for_status()
+                st.session_state.emails = res.json() if res.text.strip() else []
+            
+            if not st.session_state.emails:
+                st.info("No new emails received")
+            else:
+                st.success(f"Found {len(st.session_state.emails)} unread email(s)")
 
-        st.divider()
+        # st.divider()
         
         # Display email list
         if st.session_state.emails:
-            st.markdown("### Email List")
             for i, email in enumerate(st.session_state.emails):
                 # Check if we have cached status
                 if i in st.session_state.email_status_map:
@@ -726,11 +859,11 @@ def dashboard():
                     col1, col2, col3 = st.columns([3, 1, 1])
 
                     with col1:
-                        st.markdown(f"📧 **{email.get('subject', 'No Subject')}**")
+                        st.markdown(f"<p style='font-family: \"Inter\", sans-serif; font-size: 1.1rem; font-weight: 600; color: #2c3e50; margin-bottom: 0.3rem;'>📧 {email.get('subject', 'No Subject')}</p>", unsafe_allow_html=True)
                         st.caption(f"From: {email.get('from', {}).get('text', 'Unknown')}")
                         st.caption(f"Date: {formatted_date}")
 
-                        st.markdown(f"**Status:** `{status_text}`")
+                        st.markdown(f"<p style='font-family: \"Roboto Mono\", monospace; font-size: 0.9rem;'><strong>Status:</strong> <code>{status_text}</code></p>", unsafe_allow_html=True)
 
                     with col3:
                         # Determine button text based on status
@@ -777,7 +910,7 @@ def dashboard():
 
         # ================= UI ================= #
 
-        st.markdown("### 📄 Email Details")
+        st.markdown("<h3 style='font-family: \"Poppins\", sans-serif; color: #2c3e50; font-weight: 600;'>Requisition</h3>", unsafe_allow_html=True)
         st.divider()
 
         if st.session_state.selected_email_index is not None:
@@ -786,7 +919,7 @@ def dashboard():
             render_email_details(email)
 
             st.divider()
-            col1, col2, col3 = st.columns([1, 2, 1])
+            col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
 
             state = st.session_state.processing_state
             supplier_state = st.session_state.supplier_matching_state
@@ -794,6 +927,10 @@ def dashboard():
             
             # Get current email status
             email_status = st.session_state.email_status_map.get(i, "Not processed")
+            
+            # Show RFI completion dialog if RFIs were sent
+            if st.session_state.get("show_rfi_completion_dialog", False):
+                show_rfi_complete_dialog()
             
             # Show Complete dialog if status is Complete
             if email_status == "Complete" and st.session_state.get("show_request_complete_dialog", False):
@@ -817,6 +954,11 @@ def dashboard():
                         st.session_state.processing_email_index = i
                         st.session_state.processing_state = ProcessingState.START_EXECUTION
                         st.rerun()
+            
+            with col3:
+                if st.button("Cancel", key="cancel_tab1", use_container_width=True):
+                    st.session_state.current_tab = 0
+                    st.rerun()
 
             st.divider()
 
@@ -826,7 +968,7 @@ def dashboard():
             # START EXECUTION (1st API CALL)
             # ────────────────────────────────────────────────
             if state == ProcessingState.START_EXECUTION:
-                with st.spinner("Starting email processing..."):
+                with st.spinner("Generating Request ID..."):
                     try:
                         res = requests.post(
                             f"{N8N_BASE_URL}process-single-email",
@@ -872,7 +1014,7 @@ def dashboard():
                 if st.session_state.status_message:
                     st.info(st.session_state.status_message)
 
-                with st.spinner("Continuing processing..."):
+                with st.spinner("Validating BOM details..."):
                     try:
                         res = requests.post(st.session_state.resume_url, timeout=300)
                         res.raise_for_status()
@@ -914,7 +1056,7 @@ def dashboard():
                 if st.session_state.status_message:
                     st.info(st.session_state.status_message)
 
-                with st.spinner("Finalizing request..."):
+                with st.spinner("Finalizing request processing..."):
                     try:
                         res = requests.post(st.session_state.resume_url, timeout=300)
                         res.raise_for_status()
@@ -991,8 +1133,8 @@ def dashboard():
 
     # TAB 3: Supplier Matching
     elif st.session_state.current_tab == 2:
-        st.markdown("### Supplier Matching & RFI")
-        st.divider()
+        # st.markdown("### Supplier Matching & RFI")
+        # st.divider()
         
         result = st.session_state.process_result
         
@@ -1014,18 +1156,24 @@ def dashboard():
             print(f"DEBUG - Tab 3 - Current supplier matching state: {state}")
             print(f"DEBUG - Tab 3 - Button disabled: {button_disabled}")
 
-            col1, col2, col3 = st.columns([1, 2, 1])
+            col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
+            
             with col2:
-                if st.button("Match Suppliers", key=f"match_btn", use_container_width=True, type="primary", disabled=button_disabled):
+                if st.button("Match Suppliers", key=f"match_btn", width='stretch', type="primary", disabled=button_disabled):
                     st.session_state.supplier_matching_state = ProcessingState.SUPPLIER_START
                     st.session_state.selected_suppliers = {}
                     st.rerun()
 
                 if match_disabled:
-                    if st.button("Go to RFI Summary", key="goto_rfi_from_match", use_container_width=True, type="primary"):
+                    if st.button("Go to RFI Summary", key="goto_rfi_from_match", width='stretch', type="primary"):
                         st.session_state["tab_unlocked"][4] = True
                         st.session_state.current_tab = 4
                         st.rerun()
+            
+            with col3:
+                if st.button("Cancel", key="cancel_tab2", width='content'):
+                    st.session_state.current_tab = 1
+                    st.rerun()
             
             st.divider()
 
@@ -1039,7 +1187,7 @@ def dashboard():
             # ──────────────────────────────────────────────────
             if state == ProcessingState.SUPPLIER_START:
                 print("DEBUG - Inside SUPPLIER_START block")
-                with st.spinner("Starting supplier matching..."):
+                with st.spinner("Loading BOM items..."):
                     try:
                         print(f"DEBUG - About to call API: {N8N_BASE_URL}supplier-matching")
                         print(f"DEBUG - With request_id: {st.session_state.current_request_id}")
@@ -1089,7 +1237,7 @@ def dashboard():
                 # Debug: Show what URL we're calling
                 print(f"DEBUG - Call 2 - About to POST to: {st.session_state.supplier_resume_url}")
 
-                with st.spinner("Continuing supplier matching..."):
+                with st.spinner("Fetching web discovered suppliers..."):
                     try:
                         res = requests.post(st.session_state.supplier_resume_url, timeout=300)
                         print(f"DEBUG - Call 2 - Response status: {res.status_code}")
@@ -1137,7 +1285,7 @@ def dashboard():
                 if st.session_state.supplier_status_message:
                     st.info(st.session_state.supplier_status_message)
 
-                with st.spinner("Processing supplier data..."):
+                with st.spinner("Processing suppliers..."):
                     try:
                         res = requests.post(st.session_state.supplier_resume_url, timeout=300)
                         res.raise_for_status()
@@ -1234,11 +1382,18 @@ def dashboard():
                 if st.session_state.supplier_status_message:
                     st.info(st.session_state.supplier_status_message)
 
-                st.error(f"❌ Supplier matching failed: {st.session_state.supplier_matching_error}")
-                if st.button("Reset", use_container_width=True, key="reset_supplier_error"):
+                error_msg = st.session_state.supplier_matching_error
+                st.error(f"❌ Supplier matching failed: {error_msg}")
+                
+                # Provide more helpful error message for 409 errors
+                if "409" in str(error_msg) or "Conflict" in str(error_msg):
+                    st.warning("⚠️ This error usually means the workflow has already been executed. Please try starting the supplier matching process again from the beginning.")
+                
+                if st.button("Reset", width='content', key="reset_supplier_error"):
                     st.session_state.supplier_matching_state = ProcessingState.IDLE
                     st.session_state.supplier_matching_error = None
                     st.session_state.supplier_status_message = None
+                    st.session_state.supplier_resume_url = None  # Clear the resume URL
                     st.rerun()
 
             # ──────────────────────────────────────────────────
@@ -1259,7 +1414,7 @@ def dashboard():
                     rfi_state = st.session_state.rfi_sending_state
                     send_disabled = bool(st.session_state.get("rfi_sent") and processed_for_current) or rfi_state != ProcessingState.IDLE
 
-                    if st.button("Send RFIs", key=f"submit_rfi_btn", use_container_width=True, type="primary", disabled=send_disabled):
+                    if st.button("Send RFIs", key=f"submit_rfi_btn", width='content', type="primary", disabled=send_disabled):
                         st.session_state.active_item = None
                         
                         payload = []
@@ -1296,7 +1451,7 @@ def dashboard():
                             st.rerun()
 
                     if send_disabled and st.session_state.get("rfi_sent"):
-                        if st.button("View RFI Summary", key="view_rfi_summary_btn", use_container_width=True, type="primary"):
+                        if st.button("View RFI Summary", key="view_rfi_summary_btn", width='content', type="primary"):
                             st.session_state["tab_unlocked"][4] = True
                             st.session_state.current_tab = 4
                             st.rerun()
@@ -1311,7 +1466,7 @@ def dashboard():
             # ──────────────────────────────────────────────────
             if rfi_state == ProcessingState.RFI_START:
                 print("DEBUG - Inside RFI_START block")
-                with st.spinner("Starting RFI distribution..."):
+                with st.spinner("Parsing the selected suppliers..."):
                     try:
                         print(f"DEBUG - About to call send-RFI API")
                         print(f"DEBUG - Payload: {st.session_state.rfi_payload}")
@@ -1444,9 +1599,8 @@ def dashboard():
             # DONE STATE
             # ──────────────────────────────────────────────────
             if rfi_state == ProcessingState.RFI_DONE:
-                # Show dialog on first completion
-                if st.session_state.get("show_rfi_completion_dialog", False):
-                    show_rfi_complete_dialog()
+                # Don't show dialog here - it will show on email details page
+                pass
 
             # ──────────────────────────────────────────────────
             # ERROR STATE
@@ -1456,7 +1610,7 @@ def dashboard():
                     st.info(st.session_state.rfi_status_message)
 
                 st.error(f"❌ RFI distribution failed: {st.session_state.rfi_sending_error}")
-                if st.button("Reset", use_container_width=True, key="reset_rfi_error"):
+                if st.button("Reset", width='content', key="reset_rfi_error"):
                     st.session_state.rfi_sending_state = ProcessingState.IDLE
                     st.session_state.rfi_sending_error = None
                     st.session_state.rfi_status_message = None
@@ -1477,7 +1631,8 @@ def dashboard():
 
             st.warning("BOM Incomplete — Follow-up Required")
 
-            col1, col2, col3 = st.columns([1, 2, 1])
+            col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
+            
             with col2:
                 if not st.session_state.followup_preview:
                     if st.button(
@@ -1491,6 +1646,11 @@ def dashboard():
                         st.rerun()
                 else:
                     st.success("Follow-up prepared successfully")
+            
+            with col3:
+                if st.button("Cancel", key="cancel_tab3", width='content'):
+                    st.session_state.current_tab = 1
+                    st.rerun()
 
 
             # BLOCKING PREP FLOW (mirrors supplier matching) - Rendered below button
@@ -1551,7 +1711,7 @@ def dashboard():
                 if not st.session_state.followup_sent:
                     col1, col2, col3 = st.columns([1, 2, 1])
                     with col2:
-                        if st.button("Send Follow-up", key=f"send_followup_btn", use_container_width=True, type="primary"):
+                        if st.button("Send Follow-up", key=f"send_followup_btn", width='content', type="primary"):
                             try:
                                 with st.spinner("Sending follow-up email..."):
                                     res = requests.post(
@@ -1597,7 +1757,7 @@ def dashboard():
                         st.divider()
                         col1, col2, col3 = st.columns([1, 2, 1])
                         with col2:
-                            if st.button("Process Another Email", key=f"tab4_back_to_tab1", use_container_width=True, type="secondary"):
+                            if st.button("Process Another Email", key=f"tab4_back_to_tab1", width='content', type="secondary"):
                                 st.session_state.current_tab = 0
                                 st.session_state.selected_email_index = None
                                 st.session_state.process_result = None
@@ -1620,7 +1780,8 @@ def dashboard():
             render_rfi_inline(st.session_state.rfi_result)
             
             st.divider()
-            col1, col2, col3 = st.columns([1, 2, 1])
+            col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
+            
             with col2:
                 if st.button("Done", key=f"tab5_done_btn", use_container_width=True, type="primary"):
                     # Update status to Complete
@@ -1630,6 +1791,11 @@ def dashboard():
                     
                     # Set flag to show completion dialog
                     st.session_state.show_request_complete_dialog = True
+                    st.session_state.current_tab = 1
+                    st.rerun()
+            
+            with col3:
+                if st.button("Cancel", key="cancel_tab4", use_container_width=True):
                     st.session_state.current_tab = 1
                     st.rerun()
         else:
