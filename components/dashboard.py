@@ -146,15 +146,14 @@ def render_email_details(email):
 @st.dialog("Processing Complete")
 def show_processing_complete_dialog(status_message, next_action):
     """Show final processing status with OK button"""
-    st.success("✅ Email processed successfully!")
     
-    # Determine BOM status based on next_action
-    if next_action == "match_suppliers":
-        bom_status = "BOM Complete"
-    elif next_action == "send-followup":
+    # Show different message based on next_action
+    if next_action == "send-followup":
+        st.error("❌ Processing incomplete — BOM requires follow-up!")
         bom_status = "BOM Incomplete"
     else:
-        bom_status = "Processing Complete"
+        st.success("✅ Processing complete!")
+        bom_status = "BOM Complete" if next_action == "match_suppliers" else "Processing Complete"
     
     st.info(f"**Status:** {bom_status}")
     
@@ -165,12 +164,11 @@ def show_processing_complete_dialog(status_message, next_action):
     elif next_action == "send-followup":
         st.markdown("**Next Step:** BOM Validation")
     
-    st.divider()
-    
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         if st.button("OK", use_container_width=True, type="primary"):
             st.session_state.show_completion_dialog = False
+            st.session_state.current_tab = 0
             st.rerun()
 
 @st.dialog("Supplier Matching Complete")
@@ -179,17 +177,15 @@ def show_supplier_matching_complete_dialog():
     st.success("✅ Supplier matching complete!")
     
     st.info(f"**Status:** Suppliers matched")
-    
     st.divider()
     
     st.markdown("**Next Action:** Select suppliers and send RFIs")
-    
-    st.divider()
     
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         if st.button("OK", use_container_width=True, type="primary"):
             st.session_state.show_supplier_completion_dialog = False
+            st.session_state.current_tab = 1
             st.rerun()
 
 @st.dialog("RFI Distribution Complete")
@@ -198,17 +194,51 @@ def show_rfi_complete_dialog():
     st.success("✅ RFI distribution complete!")
     
     st.info(f"**Status:** RFIs sent successfully")
-    
     st.divider()
-    
     st.markdown("**Next Action:** View RFI Summary")
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if st.button("OK", use_container_width=True, type="primary"):
+            st.session_state.show_rfi_completion_dialog = False
+            st.session_state.current_tab = 1
+            st.rerun()
+
+@st.dialog("Follow-up Sent")
+def show_followup_sent_dialog(recipient_email):
+    """Show follow-up sent confirmation dialog"""
+    st.success(f"The follow-up email has been sent to {recipient_email}")
     
     st.divider()
     
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         if st.button("OK", use_container_width=True, type="primary"):
-            st.session_state.show_rfi_completion_dialog = False
+            st.session_state.show_followup_sent_dialog = False
+            # Update status to Complete and show request complete dialog
+            email_index = st.session_state.selected_email_index
+            if email_index is not None:
+                st.session_state.email_status_map[email_index] = "Complete"
+            st.session_state.show_request_complete_dialog = True
+            # Navigate to email details tab
+            st.session_state.current_tab = 1
+            st.rerun()
+
+@st.dialog("Request Complete")
+def show_request_complete_dialog(request_id):
+    """Show request completion dialog with link to analyse dashboard"""
+    st.success(f"✅ Finished processing request: {request_id}")
+    
+    st.divider()
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if st.button("View in Analytics Dashboard", use_container_width=True, type="primary"):
+            st.session_state.show_request_complete_dialog = False
+            # Navigate to analyse dashboard
+            st.session_state.show_dashboard = False
+            st.session_state.show_analyse = True
+            st.session_state.analyse_request_id = request_id
             st.rerun()
 
 @st.dialog("Follow-up Email Preview")
@@ -245,6 +275,49 @@ def fetch_status_from_sheet(request_id):
     except Exception:
         pass
     return "Status unavailable"
+
+
+def is_email_processing_complete(status):
+    """Check if email processing is complete based on status"""
+    completed_statuses = ["Complete", "Follow-up sent"]
+    return status in completed_statuses
+
+
+def reset_processing_states():
+    """Reset all processing states for a new email"""
+    st.session_state.process_result = None
+    st.session_state.processing_state = ProcessingState.IDLE
+    st.session_state.resume_url = None
+    st.session_state.status_message = None
+    st.session_state.process_error = None
+    st.session_state.show_completion_dialog = False
+    
+    # Reset supplier matching
+    st.session_state.supplier_matching_state = ProcessingState.IDLE
+    st.session_state.supplier_resume_url = None
+    st.session_state.supplier_status_message = None
+    st.session_state.supplier_matching_error = None
+    st.session_state.show_supplier_completion_dialog = False
+    st.session_state.supplier_matches = []
+    st.session_state.selected_suppliers = {}
+    
+    # Reset RFI sending
+    st.session_state.rfi_sending_state = ProcessingState.IDLE
+    st.session_state.rfi_resume_url = None
+    st.session_state.rfi_status_message = None
+    st.session_state.rfi_sending_error = None
+    st.session_state.show_rfi_completion_dialog = False
+    st.session_state.rfi_sent = False
+    st.session_state.rfi_result = None
+    st.session_state.rfi_payload = None
+    st.session_state.suppliers_without_email = {}
+    st.session_state.suppliers_contacted_list = {}
+    
+    # Reset follow-up
+    st.session_state.followup_preview = None
+    st.session_state.followup_sent = False
+    st.session_state.is_preparing_followup = False
+    st.session_state.followup_prep_error = None
 
 
 # Removed synchronous trigger_supplier_matching - now using state machine
@@ -342,7 +415,7 @@ def render_attachment_preview(file_name, file_link, file_size=None):
 
 def render_rfi_inline(rfi):
     """Render RFI distribution summary"""
-    with st.expander("📊 RFI Distribution Summary", expanded=True):
+    with st.expander("📊 RFI Distribution Summary", expanded=False):
         st.markdown("### RFI Distribution Summary")
 
         st.markdown(
@@ -366,7 +439,7 @@ def render_rfi_inline(rfi):
 
     # Suppliers successfully contacted
     if st.session_state.get("suppliers_contacted_list"):
-        with st.expander("Suppliers Successfully Contacted", expanded=True):
+        with st.expander("Suppliers Successfully Contacted", expanded=False):
             st.divider()
             for item_code, supplier_list in st.session_state.suppliers_contacted_list.items():
                 st.markdown(f"**Item:** {item_code}")
@@ -389,7 +462,7 @@ def render_rfi_inline(rfi):
 
     # Suppliers without email
     if st.session_state.get("suppliers_without_email"):
-        with st.expander("Suppliers Not Contacted (Missing Email)", expanded=True):
+        with st.expander("Suppliers Not Contacted (Missing Email)", expanded=False):
             st.divider()
             for item_code, supplier_list in st.session_state.suppliers_without_email.items():
                 st.markdown(f"**Item:** {item_code}")
@@ -431,6 +504,9 @@ def render_processing_inline():
 
 def dashboard():
     """Main email processing dashboard"""
+    # Scroll to top of page
+    st.markdown('<script>window.scrollTo(0, 0);</script>', unsafe_allow_html=True)
+    
     # Top navigation bar with title and logout
     col1, col2, col3 = st.columns([1.6,4, 0.1])
     
@@ -489,7 +565,12 @@ def dashboard():
         "rfi_status_message": None,
         "rfi_sending_error": None,
         "show_rfi_completion_dialog": False,
-        "rfi_payload": None
+        "rfi_payload": None,
+        # Follow-up dialog
+        "show_followup_sent_dialog": False,
+        "followup_recipient_email": None,
+        # Request complete dialog
+        "show_request_complete_dialog": False
     }.items():
         st.session_state.setdefault(k, v)
 
@@ -520,8 +601,11 @@ def dashboard():
             tab_name = tab_names[idx]
             with col:
                 is_active = st.session_state.current_tab == idx
+                # Disable inbox tab when on other tabs (can only return via action buttons)
+                is_disabled = (idx == 0 and st.session_state.current_tab != 0)
                 if st.button(tab_name, use_container_width=True, key=f"tab_btn_{idx}", 
-                            type="primary" if is_active else "secondary"):
+                            type="primary" if is_active else "secondary",
+                            disabled=is_disabled):
                     st.session_state.current_tab = idx
                     st.rerun()
     
@@ -551,6 +635,16 @@ def dashboard():
         if st.session_state.emails:
             st.markdown("### Email List")
             for i, email in enumerate(st.session_state.emails):
+                # Check if we have cached status
+                if i in st.session_state.email_status_map:
+                    status_text = st.session_state.email_status_map[i]
+                else:
+                    status_text = "Not processed"
+                
+                # Skip completed emails
+                if is_email_processing_complete(status_text):
+                    continue
+                
                 date_str = email.get('date', 'N/A')
                 formatted_date = 'N/A'
                 if date_str != 'N/A':
@@ -570,19 +664,46 @@ def dashboard():
                         st.caption(f"From: {email.get('from', {}).get('text', 'Unknown')}")
                         st.caption(f"Date: {formatted_date}")
 
-                        # Check if we have cached status
-                        if i in st.session_state.email_status_map:
-                            status_text = st.session_state.email_status_map[i]
-                        else:
-                            status_text = "Not processed"
-                        
                         st.markdown(f"**Status:** `{status_text}`")
 
                     with col3:
-                        if st.button("Open", key=f"open_email_{i}", use_container_width=True):
+                        # Determine button text based on status
+                        if status_text == "Not processed":
+                            button_text = "Process"
+                        elif status_text == "BOM Complete":
+                            button_text = "Match Suppliers"
+                        elif status_text == "BOM Incomplete":
+                            button_text = "Preview Follow-up"
+                        elif status_text == "Suppliers matched":
+                            button_text = "Send RFIs"
+                        elif status_text == "RFIs sent":
+                            button_text = "View RFI Summary"
+                        else:
+                            button_text = "Open"
+                        
+                        if st.button(button_text, key=f"open_email_{i}", use_container_width=True):
+                            # Only reset states if switching to a different email
+                            if st.session_state.selected_email_index != i:
+                                reset_processing_states()
+                            
                             st.session_state.selected_email_index = i
                             st.session_state["tab_unlocked"][1] = True
-                            st.session_state.current_tab = 1
+                            
+                            # Navigate to appropriate tab based on status
+                            if status_text == "BOM Complete":
+                                st.session_state["tab_unlocked"][2] = True
+                                st.session_state.current_tab = 2
+                            elif status_text == "BOM Incomplete":
+                                st.session_state["tab_unlocked"][3] = True
+                                st.session_state.current_tab = 3
+                            elif status_text == "Suppliers matched":
+                                st.session_state["tab_unlocked"][2] = True
+                                st.session_state.current_tab = 2
+                            elif status_text == "RFIs sent":
+                                st.session_state["tab_unlocked"][4] = True
+                                st.session_state.current_tab = 4
+                            else:
+                                st.session_state.current_tab = 1
                             st.rerun()
 
     # TAB 2: Email Details
@@ -602,13 +723,34 @@ def dashboard():
             col1, col2, col3 = st.columns([1, 2, 1])
 
             state = st.session_state.processing_state
-            button_disabled = state != ProcessingState.IDLE
-
+            supplier_state = st.session_state.supplier_matching_state
+            rfi_state = st.session_state.rfi_sending_state
+            
+            # Get current email status
+            email_status = st.session_state.email_status_map.get(i, "Not processed")
+            
+            # Show Complete dialog if status is Complete
+            if email_status == "Complete" and st.session_state.get("show_request_complete_dialog", False):
+                show_request_complete_dialog(st.session_state.current_request_id)
+            
+            # Show different buttons based on workflow state
             with col2:
-                if st.button("Process Email", use_container_width=True, type="primary", disabled=button_disabled, key="process_email_btn"):
-                    st.session_state.processing_email_index = i
-                    st.session_state.processing_state = ProcessingState.START_EXECUTION
-                    st.rerun()
+                # Show View RFI Summary button if RFIs were sent
+                if rfi_state == ProcessingState.RFI_DONE and st.session_state.rfi_sent:
+                    if st.button("View RFI Summary", use_container_width=True, type="primary", key="goto_view_rfi_btn"):
+                        st.session_state.current_tab = 4
+                        st.rerun()
+                # Show Send RFIs button if supplier matching is complete
+                elif supplier_state == ProcessingState.SUPPLIER_DONE and st.session_state.supplier_matches:
+                    if st.button("Send RFIs", use_container_width=True, type="primary", key="goto_send_rfis_btn"):
+                        st.session_state.current_tab = 2
+                        st.rerun()
+                # Show Process Email button if not yet processed
+                elif state == ProcessingState.IDLE:
+                    if st.button("Process Email", use_container_width=True, type="primary", key="process_email_btn"):
+                        st.session_state.processing_email_index = i
+                        st.session_state.processing_state = ProcessingState.START_EXECUTION
+                        st.rerun()
 
             st.divider()
 
@@ -766,14 +908,6 @@ def dashboard():
                         st.session_state.status_message,
                         next_action
                     )
-                else:
-                    # After dialog dismissed, handle navigation
-                    if next_action == "match_suppliers":
-                        st.session_state.current_tab = 2
-                        st.rerun()
-                    elif next_action == "send-followup":
-                        st.session_state.current_tab = 3
-                        st.rerun()
 
             # ────────────────────────────────────────────────
             # ERROR STATE
@@ -1103,7 +1237,8 @@ def dashboard():
 
             # ================= RFI SENDING STATE MACHINE ================= #
 
-            print(f"DEBUG - RFI State: {st.session_state.rfi_sending_state}")
+            rfi_state = st.session_state.rfi_sending_state
+            print(f"DEBUG - RFI State: {rfi_state}")
 
             # ──────────────────────────────────────────────────
             # RFI START (1st API CALL)
@@ -1246,11 +1381,6 @@ def dashboard():
                 # Show dialog on first completion
                 if st.session_state.get("show_rfi_completion_dialog", False):
                     show_rfi_complete_dialog()
-                else:
-                    # After dialog dismissed, navigate to RFI Summary
-                    st.session_state["tab_unlocked"][4] = True
-                    st.session_state.current_tab = 4
-                    st.rerun()
 
             # ──────────────────────────────────────────────────
             # ERROR STATE
@@ -1280,7 +1410,6 @@ def dashboard():
         if result and result.get("next_action") == "send-followup":
 
             st.warning("BOM Incomplete — Follow-up Required")
-            st.divider()
 
             col1, col2, col3 = st.columns([1, 2, 1])
             with col2:
@@ -1297,7 +1426,6 @@ def dashboard():
                 else:
                     st.success("Follow-up prepared successfully")
 
-            st.divider()
 
             # BLOCKING PREP FLOW (mirrors supplier matching) - Rendered below button
             if st.session_state.get("is_preparing_followup"):
@@ -1328,7 +1456,7 @@ def dashboard():
                     st.session_state.followup_prep_error = None
                     st.rerun()
             
-            st.divider()
+            
             
             if st.session_state.followup_preview:
                 preview = st.session_state.followup_preview
@@ -1368,46 +1496,49 @@ def dashboard():
                                     res.raise_for_status()
                                     response_data = res.json()
                                 
+                                # Get recipient email
+                                if isinstance(preview, list):
+                                    recipient = preview[0].get('email_to', 'Unknown') if preview else 'Unknown'
+                                else:
+                                    recipient = preview.get('email_to', 'Unknown')
+                                
+                                success = False
                                 if isinstance(response_data, list) and len(response_data) > 0:
                                     response_obj = response_data[0]
                                     if response_obj.get("followup_sent_at"):
-                                        st.session_state.followup_sent = True
-                                        latest_status = fetch_status_from_sheet(st.session_state.current_request_id)
-                                        st.session_state.email_status_map[st.session_state.selected_email_index] = latest_status
-                                        
-                                        if isinstance(preview, list):
-                                            preview = preview[0] if preview else {}
-                                        recipient = preview.get('email_to', 'Unknown')
-                                        st.success(f"Follow-up email sent successfully to {recipient}")
-                                    else:
-                                        st.error(f"Error: Failed to send follow-up")
+                                        success = True
                                 elif isinstance(response_data, dict):
                                     if response_data.get("success") or response_data.get("followup_sent_at"):
-                                        st.session_state.followup_sent = True
-                                        if isinstance(preview, list):
-                                            preview = preview[0] if preview else {}
-                                        recipient = preview.get('email_to', 'Unknown')
-                                        st.success(f"Follow-up email sent successfully to {recipient}")
-                                    else:
-                                        st.error(f"Error: {response_data.get('message', 'Failed to send follow-up')}")
+                                        success = True
+                                
+                                if success:
+                                    st.session_state.followup_sent = True
+                                    
+                                    # Store recipient and show dialog
+                                    st.session_state.followup_recipient_email = recipient
+                                    st.session_state.show_followup_sent_dialog = True
+                                    st.rerun()
                                 else:
-                                    st.error("Error: Invalid response format")
-                                st.rerun()
+                                    st.error(f"Error: Failed to send follow-up")
                             except requests.RequestException as e:
                                 st.error(f"Error sending follow-up: {str(e)}")
                 else:
-                    st.success("Follow-up email sent successfully")
-                    st.divider()
-                    col1, col2, col3 = st.columns([1, 2, 1])
-                    with col2:
-                        if st.button("Process Another Email", key=f"tab4_back_to_tab1", use_container_width=True, type="secondary"):
-                            st.session_state.current_tab = 0
-                            st.session_state.selected_email_index = None
-                            st.session_state.process_result = None
-                            st.session_state.followup_preview = None
-                            st.session_state.followup_sent = False
-                            st.session_state.current_request_id = None
-                            st.rerun()
+                    # Show dialog if flag is set
+                    if st.session_state.get("show_followup_sent_dialog", False):
+                        show_followup_sent_dialog(st.session_state.followup_recipient_email)
+                    else:
+                        st.success("Follow-up email sent successfully")
+                        st.divider()
+                        col1, col2, col3 = st.columns([1, 2, 1])
+                        with col2:
+                            if st.button("Process Another Email", key=f"tab4_back_to_tab1", use_container_width=True, type="secondary"):
+                                st.session_state.current_tab = 0
+                                st.session_state.selected_email_index = None
+                                st.session_state.process_result = None
+                                st.session_state.followup_preview = None
+                                st.session_state.followup_sent = False
+                                st.session_state.current_request_id = None
+                                st.rerun()
         else:
             st.info("Process an email with BOM Incomplete status to access follow-up processing")
 
@@ -1416,23 +1547,24 @@ def dashboard():
         st.markdown("### 📤 RFI Distribution Summary")
         st.divider()
         
+        # Scroll to top when entering this tab
+        st.markdown('<script>window.scrollTo(0, 0);</script>', unsafe_allow_html=True)
+        
         if st.session_state.rfi_sent and st.session_state.rfi_result:
             render_rfi_inline(st.session_state.rfi_result)
             
             st.divider()
             col1, col2, col3 = st.columns([1, 2, 1])
             with col2:
-                if st.button("Process Another Email", key=f"tab5_back_to_tab1", use_container_width=True, type="secondary"):
-                    st.session_state.current_tab = 0
-                    st.session_state.selected_email_index = None
-                    st.session_state.process_result = None
-                    st.session_state.rfi_sent = False
-                    st.session_state.rfi_result = None
-                    st.session_state.suppliers_without_email = {}
-                    st.session_state.suppliers_contacted_list = {}
-                    st.session_state.supplier_matches = []
-                    st.session_state.selected_suppliers = {}
-                    st.session_state.current_request_id = None
+                if st.button("Done", key=f"tab5_done_btn", use_container_width=True, type="primary"):
+                    # Update status to Complete
+                    email_index = st.session_state.selected_email_index
+                    if email_index is not None:
+                        st.session_state.email_status_map[email_index] = "Complete"
+                    
+                    # Set flag to show completion dialog
+                    st.session_state.show_request_complete_dialog = True
+                    st.session_state.current_tab = 1
                     st.rerun()
         else:
             st.info("Send RFIs from Tab 3 to view the distribution summary")

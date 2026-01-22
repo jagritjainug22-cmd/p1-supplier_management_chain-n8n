@@ -94,7 +94,7 @@ def landing_page():
         st.markdown(
             """
             <div class='custom-card analyse'>
-                <div class='card-title'>📈 Analyse</div>
+                <div class='card-title'>ANALYSE</div>
                 <div class='card-desc'>Analyze supplier data and insights</div>
             </div>
             """,
