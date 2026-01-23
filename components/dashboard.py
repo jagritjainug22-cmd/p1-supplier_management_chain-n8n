@@ -148,7 +148,7 @@ def render_email_details(email):
         f"""
         <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px;">
             <span style="display: inline-block; background-color: #000000; color: #ffffff; padding: 6px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; letter-spacing: 0.5px;">SUBJECT</span>
-            <span style="font-family: Poppins, sans-serif; font-size: 18px; font-weight: 600; color: #2c3e50;">{subject}</span>
+            <span style="font-family: Ubuntu, sans-serif; font-size: 1rem; font-weight: 600; color: #2c3e50;">{subject}</span>
         </div>
         """,
         unsafe_allow_html=True
@@ -160,7 +160,7 @@ def render_email_details(email):
         f"""
         <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px;">
             <span style="display: inline-block; background-color: #000000; color: #ffffff; padding: 6px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; letter-spacing: 0.5px;">FROM</span>
-            <span style="font-family: Poppins, sans-serif; font-size: 18px; font-weight: 600; color: #2c3e50;">{from_text}</span>
+            <span style="font-family: Ubuntu, sans-serif; font-size: 1rem; font-weight: 600; color: #2c3e50;">{from_text}</span>
         </div>
         """,
         unsafe_allow_html=True
@@ -171,7 +171,7 @@ def render_email_details(email):
         f"""
         <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px;">
             <span style="display: inline-block; background-color: #000000; color: #ffffff; padding: 6px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; letter-spacing: 0.5px;">DATE</span>
-            <span style="font-family: Poppins, sans-serif; font-size: 18px; font-weight: 600; color: #2c3e50;">{formatted_date}</span>
+            <span style="font-family: Ubuntu, sans-serif; font-size: 1rem; font-weight: 600; color: #2c3e50;">{formatted_date}</span>
         </div>
         """,
         unsafe_allow_html=True
@@ -197,28 +197,10 @@ def render_email_details(email):
         unsafe_allow_html=True
     )
     
-    # Email content container
-    st.markdown(
-        """
-        <div style="
-            background-color: #ffffff;
-            border: 2px solid #e9ecef;
-            border-radius: 8px;
-            padding: 20px;
-            margin-top: 10px;
-            max-height: 400px;
-            overflow-y: auto;
-        ">
-        """,
-        unsafe_allow_html=True
-    )
-    
     if email.get("html"):
         st.components.v1.html(email["html"], height=400, scrolling=True)
     else:
         st.markdown(f"<div style='font-family: Inter, sans-serif; color: #2c3e50; white-space: pre-wrap;'>{email.get('text', '')}</div>", unsafe_allow_html=True)
-    
-    # st.markdown("</div>", unsafe_allow_html=True)
 
 
 @st.dialog("Processing Complete")
@@ -263,15 +245,14 @@ def show_supplier_matching_complete_dialog():
     with col2:
         if st.button("OK", use_container_width=True, type="primary"):
             st.session_state.show_supplier_completion_dialog = False
-            st.session_state.current_tab = 1
+            st.session_state.scroll_to_bom = True
             st.rerun()
 
 @st.dialog("RFI Distribution Complete")
 def show_rfi_complete_dialog():
     """Show RFI sending completion dialog"""
-    st.success("✅ RFI distribution complete!")
+    st.success("✅ RFIs sent to selected suppliers")
     
-    st.info(f"**Status:** RFIs sent successfully")
     st.divider()
     st.markdown("**Next Action:** View RFI Summary")
     
@@ -279,7 +260,7 @@ def show_rfi_complete_dialog():
     with col2:
         if st.button("OK", use_container_width=True, type="primary"):
             st.session_state.show_rfi_completion_dialog = False
-            st.session_state.current_tab = 1
+            st.session_state.current_tab = 0
             st.rerun()
 
 @st.dialog("Follow-up Sent")
@@ -402,11 +383,16 @@ def reset_processing_states():
 
 def render_supplier_selection_table(item, email_index):
     """Render supplier selection table with enhanced styling and features"""
-    st.markdown(f"<h4 style='font-family: \"Poppins\", sans-serif; color: #2c3e50; font-weight: 600;'>{item['item_code']} — {item['item_description']}</h4>", unsafe_allow_html=True)
-    st.markdown(f"<p style='font-family: \"Inter\", sans-serif; color: #5a6c7d;'><em>Spec:</em> {item['item_specification']} | <em>Material:</em> {item['item_material']}</p>", unsafe_allow_html=True)
-    st.divider()
+    st.markdown(f"<h4 style='font-family: \"Poppins\", sans-serif; color: #2c3e50; font-weight: 600; margin-bottom: 0.25rem;'>{item['item_code']} — {item['item_description']}</h4>", unsafe_allow_html=True)
+    st.markdown(f"<p style='font-family: \"Inter\", sans-serif; color: #5a6c7d; font-size: 0.85rem; margin-bottom: 0.5rem;'><em>Spec:</em> {item['item_specification']} | <em>Material:</em> {item['item_material']}</p>", unsafe_allow_html=True)
 
     selected = st.session_state.setdefault("selected_suppliers", {})
+    
+    # Initialize rank 1 items as selected if not already set
+    for s in item.get("suppliers", []):
+        key = f"{item['item_code']}::{s['supplier_id']}"
+        if key not in selected and s.get("rank") == 1:
+            selected[key] = True
     
     # Add select all / deselect all buttons
     col1, col2, col3, col4 = st.columns([1, 1, 1, 3])
@@ -423,22 +409,23 @@ def render_supplier_selection_table(item, email_index):
                 selected[key] = False
             st.rerun()
     with col3:
+        # Count selected items (including initialized defaults)
         selected_count = sum(1 for s in item.get("suppliers", []) if selected.get(f"{item['item_code']}::{s['supplier_id']}", False))
         st.info(f"**{selected_count}** selected")
     
-    st.divider()
+    st.markdown("<div style='margin: 0.5rem 0;'></div>", unsafe_allow_html=True)
     
     # Helper function to get confidence badge color
     def get_confidence_badge(confidence):
         conf = str(confidence).upper()
         if conf == 'HIGH':
-            return '<span style="background-color: #28a745; color: white; padding: 4px 12px; border-radius: 12px; font-weight: 600; font-size: 0.85em;">🔥 HIGH</span>'
+            return '<span style="background-color: #28a745; color: white; padding: 2px 8px; border-radius: 8px; font-weight: 600; font-size: 0.75em;">🔥 HIGH</span>'
         elif conf == 'MEDIUM':
-            return '<span style="background-color: #ffc107; color: black; padding: 4px 12px; border-radius: 12px; font-weight: 600; font-size: 0.85em;">⚡ MEDIUM</span>'
+            return '<span style="background-color: #ffc107; color: black; padding: 2px 8px; border-radius: 8px; font-weight: 600; font-size: 0.75em;">⚡ MED</span>'
         elif conf == 'LOW':
-            return '<span style="background-color: #dc3545; color: white; padding: 4px 12px; border-radius: 12px; font-weight: 600; font-size: 0.85em;">⚠️ LOW</span>'
+            return '<span style="background-color: #dc3545; color: white; padding: 2px 8px; border-radius: 8px; font-weight: 600; font-size: 0.75em;">⚠️ LOW</span>'
         else:
-            return '<span style="background-color: #6c757d; color: white; padding: 4px 12px; border-radius: 12px; font-weight: 600; font-size: 0.85em;">N/A</span>'
+            return '<span style="background-color: #6c757d; color: white; padding: 2px 8px; border-radius: 8px; font-weight: 600; font-size: 0.75em;">N/A</span>'
     
     # Display each supplier as a card
     for idx, s in enumerate(item.get("suppliers", [])):
@@ -456,21 +443,6 @@ def render_supplier_selection_table(item, email_index):
             border_color = "#dee2e6"  # Gray for others
             border_style = "1px solid"
         
-        # Card container with styling
-        card_style = f"""
-        <div style="
-            border: {border_style} {border_color};
-            border-radius: 12px;
-            padding: 16px;
-            margin-bottom: 12px;
-            background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-            transition: all 0.3s ease;
-        ">
-        """
-        
-        st.markdown(card_style, unsafe_allow_html=True)
-        
         cols = st.columns([0.5, 0.4, 2, 2.5, 1.2, 1.2, 1.5, 0.8])
         
         with cols[0]:
@@ -479,30 +451,30 @@ def render_supplier_selection_table(item, email_index):
         with cols[1]:
             # Rank badge
             if s.get("rank") == 1:
-                st.markdown('<div style="background: linear-gradient(135deg, #28a745, #20c997); color: white; padding: 8px; border-radius: 50%; text-align: center; font-weight: bold; font-size: 1.1em; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;">🥇</div>', unsafe_allow_html=True)
+                st.markdown('<div style="background: linear-gradient(135deg, #28a745, #20c997); color: white; padding: 4px; border-radius: 50%; text-align: center; font-weight: bold; font-size: 0.9em; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;">🥇</div>', unsafe_allow_html=True)
             elif s.get("rank") == 2:
-                st.markdown('<div style="background: linear-gradient(135deg, #6c757d, #adb5bd); color: white; padding: 8px; border-radius: 50%; text-align: center; font-weight: bold; font-size: 1.1em; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;">🥈</div>', unsafe_allow_html=True)
+                st.markdown('<div style="background: linear-gradient(135deg, #6c757d, #adb5bd); color: white; padding: 4px; border-radius: 50%; text-align: center; font-weight: bold; font-size: 0.9em; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;">🥈</div>', unsafe_allow_html=True)
             elif s.get("rank") == 3:
-                st.markdown('<div style="background: linear-gradient(135deg, #cd7f32, #d4a76a); color: white; padding: 8px; border-radius: 50%; text-align: center; font-weight: bold; font-size: 1.1em; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;">🥉</div>', unsafe_allow_html=True)
+                st.markdown('<div style="background: linear-gradient(135deg, #cd7f32, #d4a76a); color: white; padding: 4px; border-radius: 50%; text-align: center; font-weight: bold; font-size: 0.9em; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;">🥉</div>', unsafe_allow_html=True)
             else:
-                st.markdown(f'<div style="background: #f8f9fa; color: #495057; padding: 8px; border-radius: 50%; text-align: center; font-weight: bold; border: 2px solid #dee2e6; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;">#{s.get("rank")}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="background: #f8f9fa; color: #495057; padding: 4px; border-radius: 50%; text-align: center; font-weight: bold; border: 2px solid #dee2e6; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; font-size: 0.8em;">#{s.get("rank")}</div>', unsafe_allow_html=True)
         
         with cols[2]:
-            st.markdown(f"**{s['supplier_name']}**")
+            st.markdown(f"<p style='margin: 0; font-size: 0.95rem;'><strong>{s['supplier_name']}</strong></p>", unsafe_allow_html=True)
             if s.get('recommended'):
-                st.markdown('<span style="background-color: #ffc107; color: black; padding: 2px 8px; border-radius: 8px; font-size: 0.75em; font-weight: 600;">⭐ RECOMMENDED</span>', unsafe_allow_html=True)
+                st.markdown('<span style="background-color: #ffc107; color: black; padding: 1px 6px; border-radius: 6px; font-size: 0.7em; font-weight: 600;">⭐ RECOMMENDED</span>', unsafe_allow_html=True)
         
         with cols[3]:
             if s.get('supplier_email'):
-                st.markdown(f"📧 {s.get('supplier_email')}")
+                st.markdown(f"<p style='margin: 0; font-size: 0.85rem;'>📧 {s.get('supplier_email')}</p>", unsafe_allow_html=True)
             else:
-                st.markdown('<span style="color: #dc3545;">⚠️ No email</span>', unsafe_allow_html=True)
+                st.markdown('<span style="color: #dc3545; font-size: 0.85rem;">⚠️ No email</span>', unsafe_allow_html=True)
         
         with cols[4]:
-            st.markdown(f"📍 {s.get('supplier_city', 'N/A')}")
+            st.markdown(f"<p style='margin: 0; font-size: 0.85rem;'>📍 {s.get('supplier_city', 'N/A')}</p>", unsafe_allow_html=True)
         
         with cols[5]:
-            st.markdown(f"🌍 {s.get('supplier_country', 'N/A')}")
+            st.markdown(f"<p style='margin: 0; font-size: 0.85rem;'>🌍 {s.get('supplier_country', 'N/A')}</p>", unsafe_allow_html=True)
         
         with cols[6]:
             st.markdown(get_confidence_badge(s.get('confidence', 'N/A')), unsafe_allow_html=True)
@@ -517,14 +489,11 @@ def render_supplier_selection_table(item, email_index):
                     color = "#ffc107"
                 else:
                     color = "#dc3545"
-                st.markdown(f'<div style="background-color: {color}; color: white; padding: 6px 12px; border-radius: 8px; text-align: center; font-weight: bold;">{score}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="background-color: {color}; color: white; padding: 4px 8px; border-radius: 6px; text-align: center; font-weight: bold; font-size: 0.85rem;">{score}</div>', unsafe_allow_html=True)
             else:
-                st.write(score)
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-        st.write("")  # Small spacing
+                st.markdown(f"<p style='margin: 0; font-size: 0.85rem;'>{score}</p>", unsafe_allow_html=True)
     
-    st.divider()
+    st.markdown("<div style='margin: 0.5rem 0;'></div>", unsafe_allow_html=True)
     st.session_state.selected_suppliers = selected
 
 
@@ -650,7 +619,7 @@ def dashboard():
     # Add Google Fonts and Card Styles
     st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Inter:wght@400;600&family=Poppins:wght@500;700&family=Roboto+Mono:wght@400&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Inter:wght@400;600;700&family=Poppins:wght@500;700&family=Roboto+Mono:wght@400;500&display=swap');
     @import url('https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100..900;1,100..900&display=swap');
     
     .custom-card {
@@ -690,6 +659,64 @@ def dashboard():
         margin-left: 2rem;
         margin-top: 0;
         font-family: 'Roboto', 'Segoe UI', 'Poppins', sans-serif;
+    }
+    
+    /* Email Container Styles */
+    [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlock"] > div[data-testid="element-container"] {
+        margin-bottom: 1rem;
+    }
+    
+    div[data-testid="stVerticalBlock"] > div[style*="border"] {
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04) !important;
+        border-radius: 12px !important;
+        border: 1px solid #e2e8f0 !important;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        cursor: pointer !important;
+        background: linear-gradient(145deg, #ffffff 0%, #f8fafc 100%) !important;
+    }
+    
+    div[data-testid="stVerticalBlock"] > div[style*="border"]:hover {
+        box-shadow: 0 12px 24px rgba(0, 0, 0, 0.12), 0 4px 8px rgba(0, 0, 0, 0.08) !important;
+        transform: translateY(-4px) !important;
+        border-color: #cbd5e1 !important;
+    }
+    
+    /* Email Subject Styling */
+    .email-subject {
+        font-family: 'Inter', sans-serif !important;
+        font-size: 1.15rem !important;
+        font-weight: 700 !important;
+        color: #1e293b !important;
+        margin-bottom: 0.5rem !important;
+        line-height: 1.4 !important;
+        letter-spacing: -0.01em !important;
+    }
+    
+    /* Email Metadata (From, Date) */
+    .email-meta {
+        font-family: 'Inter', sans-serif !important;
+        font-size: 0.875rem !important;
+        font-weight: 500 !important;
+        color: #64748b !important;
+        line-height: 1.6 !important;
+    }
+    
+    /* Status Badge */
+    .email-status {
+        font-family: 'Roboto Mono', monospace !important;
+        font-size: 0.875rem !important;
+        font-weight: 500 !important;
+        color: #475569 !important;
+        background: #f1f5f9 !important;
+        padding: 0.25rem 0.75rem !important;
+        border-radius: 6px !important;
+        display: inline-block !important;
+        margin-top: 0.5rem !important;
+    }
+    
+    /* Streamlit Caption Override for Email Cards */
+    div[data-testid="stVerticalBlock"] > div[style*="border"] .stMarkdown p {
+        font-family: 'Inter', sans-serif !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -811,7 +838,7 @@ def dashboard():
         
         st.markdown("""
         <div style='margin-bottom: 20px; margin-top: 10px;'>
-            <p style='font-family: "Poppins", sans-serif; font-size: 1rem; color: #5a6c7d; font-weight: 500; line-height: 1.6;'>
+            <p style='font-family: "Ubuntu", sans-serif; font-size: 1rem; color: black; font-weight: 500; line-height: 1.6;'>
                 Click to fetch unprocessed requests (last 24 hrs)
             </p>
         </div>
@@ -859,11 +886,10 @@ def dashboard():
                     col1, col2, col3 = st.columns([3, 1, 1])
 
                     with col1:
-                        st.markdown(f"<p style='font-family: \"Inter\", sans-serif; font-size: 1.1rem; font-weight: 600; color: #2c3e50; margin-bottom: 0.3rem;'>📧 {email.get('subject', 'No Subject')}</p>", unsafe_allow_html=True)
-                        st.caption(f"From: {email.get('from', {}).get('text', 'Unknown')}")
-                        st.caption(f"Date: {formatted_date}")
-
-                        st.markdown(f"<p style='font-family: \"Roboto Mono\", monospace; font-size: 0.9rem;'><strong>Status:</strong> <code>{status_text}</code></p>", unsafe_allow_html=True)
+                        st.markdown(f"<p class='email-subject'>📧 {email.get('subject', 'No Subject')}</p>", unsafe_allow_html=True)
+                        st.markdown(f"<p class='email-meta'>From: {email.get('from', {}).get('text', 'Unknown')}</p>", unsafe_allow_html=True)
+                        st.markdown(f"<p class='email-meta'>Date: {formatted_date}</p>", unsafe_allow_html=True)
+                        st.markdown(f"<p class='email-meta' style='margin-top: 0.5rem;'><strong>Status:</strong> <span class='email-status' style='color: #28a745; font-weight: 600;'>{status_text}</span></p>", unsafe_allow_html=True)
 
                     with col3:
                         # Determine button text based on status
@@ -909,9 +935,10 @@ def dashboard():
     elif st.session_state.current_tab == 1:
 
         # ================= UI ================= #
-
-        st.markdown("<h3 style='font-family: \"Poppins\", sans-serif; color: #2c3e50; font-weight: 600;'>Requisition</h3>", unsafe_allow_html=True)
         st.divider()
+        st.markdown("<h3 id='requisition' style='font-family: \"ubuntu\", sans-serif; font-size: 1.5rem; color: brown; font-weight: 600;'>PURCHASE REQUISITION DETAILS</h3>", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        
 
         if st.session_state.selected_email_index is not None:
             i = st.session_state.selected_email_index
@@ -953,16 +980,31 @@ def dashboard():
                     if st.button("Process Email", use_container_width=True, type="primary", key="process_email_btn"):
                         st.session_state.processing_email_index = i
                         st.session_state.processing_state = ProcessingState.START_EXECUTION
+                        st.session_state.scroll_to_requisition = True
                         st.rerun()
             
             with col3:
-                if st.button("Cancel", key="cancel_tab1", use_container_width=True):
+                if st.button("Cancel", key="cancel_tab1", use_container_width=True, type="secondary"):
                     st.session_state.current_tab = 0
                     st.rerun()
 
             st.divider()
 
             # ================= STATE MACHINE ================= #
+            
+            # Scroll to requisition section if flag is set
+            if st.session_state.get("scroll_to_requisition", False):
+                st.markdown("""
+                    <script>
+                        setTimeout(function() {
+                            var element = document.getElementById('requisition');
+                            if (element) {
+                                element.scrollIntoView({behavior: 'smooth', block: 'start'});
+                            }
+                        }, 100);
+                    </script>
+                """, unsafe_allow_html=True)
+                st.session_state.scroll_to_requisition = False
 
             # ────────────────────────────────────────────────
             # START EXECUTION (1st API CALL)
@@ -1171,7 +1213,7 @@ def dashboard():
                         st.rerun()
             
             with col3:
-                if st.button("Cancel", key="cancel_tab2", width='content'):
+                if st.button("Cancel", key="cancel_tab2", use_container_width=True, type="secondary"):
                     st.session_state.current_tab = 1
                     st.rerun()
             
@@ -1400,55 +1442,113 @@ def dashboard():
             # DISPLAY SUPPLIER MATCHES
             # ──────────────────────────────────────────────────
             if st.session_state.supplier_matches:
-                st.markdown("### Bill of Materials (BOM)")
+                st.markdown("<h3 id='bill-of-materials-bom' style='font-family: \"ubuntu\", sans-serif; font-size: 1.5rem; color: #2c3e50; font-weight: 600;'>Supplier Matches</h3>", unsafe_allow_html=True)
+                
+                # Scroll to BOM section if flag is set
+                if st.session_state.get("scroll_to_bom", False):
+                    st.markdown("""
+                        <script>
+                            setTimeout(function() {
+                                var element = document.getElementById('bill-of-materials-bom');
+                                if (element) {
+                                    element.scrollIntoView({behavior: 'smooth', block: 'start'});
+                                }
+                            }, 100);
+                        </script>
+                    """, unsafe_allow_html=True)
+                    st.session_state.scroll_to_bom = False
+                
                 st.divider()
                 
-                for item in st.session_state.supplier_matches:
-                    with st.expander(f"🔍 {item['item_code']} — {item['item_description']}", expanded=False):
-                        render_supplier_selection_table(item, st.session_state.selected_email_index or 0)
+                # Display BOM items as tabs with even spacing
+                num_items = len(st.session_state.supplier_matches)
+                if num_items > 0:
+                    # Initialize active tab index in session state
+                    if "active_bom_tab" not in st.session_state:
+                        st.session_state.active_bom_tab = 0
+                    
+                    # Create evenly spaced columns for tab buttons
+                    cols = st.columns(num_items)
+                    
+                    # Render tab buttons
+                    for idx, col in enumerate(cols):
+                        with col:
+                            item = st.session_state.supplier_matches[idx]
+                            is_active = st.session_state.active_bom_tab == idx
+                            if st.button(
+                                f"🔍 {item['item_code']}", 
+                                key=f"bom_tab_{idx}",
+                                use_container_width=True,
+                                type="primary" if is_active else "secondary"
+                            ):
+                                st.session_state.active_bom_tab = idx
+                                st.rerun()
+                    
+                    st.divider()
+                    
+                    # Render content for the active tab
+                    active_item = st.session_state.supplier_matches[st.session_state.active_bom_tab]
+                    st.markdown(f"<h4 style='font-family: \"Poppins\", sans-serif; color: #2c3e50; font-weight: 600; margin-bottom: 0.5rem;'>{active_item['item_description']}</h4>", unsafe_allow_html=True)
+                    render_supplier_selection_table(active_item, st.session_state.selected_email_index or 0)
 
                 st.divider()
-                col1, col2, col3 = st.columns([1, 2, 1])
-                with col2:
-                    # Disable sending RFIs if RFIs were already sent for this processed request
-                    rfi_state = st.session_state.rfi_sending_state
-                    send_disabled = bool(st.session_state.get("rfi_sent") and processed_for_current) or rfi_state != ProcessingState.IDLE
-
-                    if st.button("Send RFIs", key=f"submit_rfi_btn", width='content', type="primary", disabled=send_disabled):
-                        st.session_state.active_item = None
+                
+                # Calculate total selected suppliers across all items
+                selected = st.session_state.setdefault("selected_suppliers", {})
+                total_selected = sum(
+                    1 for item in st.session_state.supplier_matches
+                    for s in item.get("suppliers", [])
+                    if selected.get(f"{item['item_code']}::{s['supplier_id']}", s.get("rank") == 1)
+                )
+                
+                # Show Send RFIs button only if at least 1 supplier selected
+                if total_selected > 0:
+                    col1, col2, col3 = st.columns([2, 3, 2])
+                    with col2:
+                        # Disable sending RFIs if RFIs were already sent for this processed request
+                        rfi_state = st.session_state.rfi_sending_state
+                        send_disabled = bool(st.session_state.get("rfi_sent") and processed_for_current) or rfi_state != ProcessingState.IDLE
                         
-                        payload = []
-                        suppliers_without_email = {}
-                        suppliers_contacted_list = {}
+                        button_col1, button_col2 = st.columns([2, 3])
+                        with button_col1:
+                            st.markdown(f"<div style='background: linear-gradient(135deg, #28a745, #20c997); color: white; padding: 12px 12px; border-radius: 8px;text-align: center; font-weight: 600; font-size: 1.1em; margin-top: 0px;'>{total_selected} Selected</div>", unsafe_allow_html=True)
                         
-                        for item in st.session_state.supplier_matches:
-                            suppliers = []
-                            missing_email = []
-                            
-                            for s in item["suppliers"]:
-                                key = f"{item['item_code']}::{s['supplier_id']}"
-                                if st.session_state.selected_suppliers.get(key):
-                                    if s.get("supplier_email"):
-                                        suppliers.append(s)
-                                    else:
-                                        missing_email.append(s)
+                        with button_col2:
+                            if st.button("Send RFIs", key=f"submit_rfi_btn", use_container_width=True, type="primary", disabled=send_disabled):
+                                st.session_state.active_item = None
+                                
+                                payload = []
+                                suppliers_without_email = {}
+                                suppliers_contacted_list = {}
+                                
+                                for item in st.session_state.supplier_matches:
+                                    suppliers = []
+                                    missing_email = []
+                                    
+                                    for s in item["suppliers"]:
+                                        key = f"{item['item_code']}::{s['supplier_id']}"
+                                        if st.session_state.selected_suppliers.get(key, s.get("rank") == 1):
+                                            if s.get("supplier_email"):
+                                                suppliers.append(s)
+                                            else:
+                                                missing_email.append(s)
 
-                            if suppliers:
-                                payload.append({**item, "suppliers": suppliers})
-                                suppliers_contacted_list[item['item_code']] = suppliers
-                            
-                            if missing_email:
-                                suppliers_without_email[item['item_code']] = missing_email
+                                    if suppliers:
+                                        payload.append({**item, "suppliers": suppliers})
+                                        suppliers_contacted_list[item['item_code']] = suppliers
+                                    
+                                    if missing_email:
+                                        suppliers_without_email[item['item_code']] = missing_email
 
-                        if not payload:
-                            st.error("No suppliers with email addresses selected")
-                        else:
-                            # Store payload and metadata for state machine
-                            st.session_state.rfi_payload = payload
-                            st.session_state.suppliers_without_email = suppliers_without_email
-                            st.session_state.suppliers_contacted_list = suppliers_contacted_list
-                            st.session_state.rfi_sending_state = ProcessingState.RFI_START
-                            st.rerun()
+                                if not payload:
+                                    st.error("No suppliers with email addresses selected")
+                                else:
+                                    # Store payload and metadata for state machine
+                                    st.session_state.rfi_payload = payload
+                                    st.session_state.suppliers_without_email = suppliers_without_email
+                                    st.session_state.suppliers_contacted_list = suppliers_contacted_list
+                                    st.session_state.rfi_sending_state = ProcessingState.RFI_START
+                                    st.rerun()
 
                     if send_disabled and st.session_state.get("rfi_sent"):
                         if st.button("View RFI Summary", key="view_rfi_summary_btn", width='content', type="primary"):
@@ -1599,8 +1699,9 @@ def dashboard():
             # DONE STATE
             # ──────────────────────────────────────────────────
             if rfi_state == ProcessingState.RFI_DONE:
-                # Don't show dialog here - it will show on email details page
-                pass
+                # Show dialog on tab 2 after RFI completion
+                if st.session_state.get("show_rfi_completion_dialog", False):
+                    show_rfi_complete_dialog()
 
             # ──────────────────────────────────────────────────
             # ERROR STATE
@@ -1648,7 +1749,7 @@ def dashboard():
                     st.success("Follow-up prepared successfully")
             
             with col3:
-                if st.button("Cancel", key="cancel_tab3", width='content'):
+                if st.button("Cancel", key="cancel_tab3", use_container_width=True, type="secondary"):
                     st.session_state.current_tab = 1
                     st.rerun()
 
@@ -1791,11 +1892,11 @@ def dashboard():
                     
                     # Set flag to show completion dialog
                     st.session_state.show_request_complete_dialog = True
-                    st.session_state.current_tab = 1
+                    st.session_state.current_tab = 0
                     st.rerun()
             
             with col3:
-                if st.button("Cancel", key="cancel_tab4", use_container_width=True):
+                if st.button("Cancel", key="cancel_tab4", use_container_width=True, type="secondary"):
                     st.session_state.current_tab = 1
                     st.rerun()
         else:

@@ -130,24 +130,102 @@ def landing_page():
 
 def login():
     st.markdown(
-        "<h1 style='text-align: center; color: #2c3e50;'>PROCUREMENT MANAGER</h1>",
+        """
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Inter:wght@400;600;700&family=Poppins:wght@500;700&display=swap');
+        
+        .login-header {
+            text-align: center;
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #2c3e50;
+            font-family: 'Playfair Display', serif;
+            margin-bottom: 0.5rem;
+            letter-spacing: 2px;
+        }
+        
+        .login-subtitle {
+            text-align: center;
+            color: #7f8c8d;
+            font-size: 1rem;
+            font-family: 'Inter', sans-serif;
+            margin-bottom: 3rem;
+        }
+        
+        .login-card {
+            background: linear-gradient(145deg, #ffffff 0%, #f8fafc 100%);
+            border-radius: 20px;
+            padding: 1rem 1rem;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1), 0 1px 3px rgba(0,0,0,0.05);
+            border: 1px solid #e2e8f0;
+        }
+        
+        .login-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #1e293b;
+            font-family: 'Poppins', sans-serif;
+            margin-bottom: 1.5rem;
+            text-align: center;
+        }
+        
+        /* Style the input containers */
+        div[data-testid="stTextInput"] > div > div {
+            border-radius: 12px;
+            border: 2px solid #e2e8f0;
+            transition: all 0.3s ease;
+        }
+        
+        div[data-testid="stTextInput"] > div > div:focus-within {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        /* Style the input fields */
+        input {
+            font-family: 'Inter', sans-serif !important;
+            font-size: 0.95rem !important;
+            padding: 0.75rem 1rem !important;
+        }
+        
+        /* Style the login button */
+        .stButton > button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+            color: white !important;
+            font-weight: 600 !important;
+            font-family: 'Poppins', sans-serif !important;
+            border-radius: 12px !important;
+            padding: 0.75rem 2rem !important;
+            font-size: 1rem !important;
+            border: none !important;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3) !important;
+            transition: all 0.3s ease !important;
+        }
+        
+        .stButton > button:hover {
+            transform: translateY(-2px) !important;
+            box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4) !important;
+        }
+        </style>
+        """,
         unsafe_allow_html=True
     )
-    st.markdown(
-        "<p style='text-align: center; color: #7f8c8d;'>Request Processing & Supplier Management</p>",
-        unsafe_allow_html=True
-    )
-
-    st.divider()
+    
+    st.markdown("<h1 class='login-header'>PROCUREMENT MANAGER</h1>", unsafe_allow_html=True)
+    # st.markdown("<p class='login-subtitle'>Request Processing & Supplier Management</p>", unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns([1, 2, 1])
 
     with col2:
-        st.markdown("### Sign In")
-        user = st.text_input("Username", label_visibility="collapsed", placeholder="Enter username")
-        pwd = st.text_input("Password", type="password", label_visibility="collapsed", placeholder="Enter password")
+        # st.markdown("<div class='login-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='login-card login-title'>🔐 Sign In</div>", unsafe_allow_html=True)
         
-        if st.button("Sign In", use_container_width=True):
+        user = st.text_input("Username", label_visibility="collapsed", placeholder="Enter username", key="login_user")
+        pwd = st.text_input("Password", type="password", label_visibility="collapsed", placeholder="Enter password", key="login_pwd")
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        if st.button("Sign In", use_container_width=True, key="login_btn"):
             if user == USERNAME and pwd == PASSWORD:
                 st.session_state.logged_in = True
                 st.session_state.in_app = False
@@ -155,6 +233,8 @@ def login():
                 st.rerun()
             else:
                 st.error("Invalid username or password")
+        
+        # st.markdown("</div>", unsafe_allow_html=True)
 
 def app_with_tabs():
 
@@ -198,8 +278,53 @@ def app_with_tabs():
             background: {"linear-gradient(135deg, #f5b3fd 0%, #f9879b 100%)" if st.session_state.active_tab == "SourcingInsights" else "#f8fafc"} !important;
             color: {"white" if st.session_state.active_tab == "SourcingInsights" else "#64748b"} !important;
         }}
+        
+        /* ========== PRIMARY BUTTON STYLING ========== */
+        button[kind="primary"] {{
+            background-color: #589532 !important;
+            color: white !important;
+            border: 2px solid #4a7d2a !important;
+        }}
 
+        button[kind="primary"]:hover {{
+            background-color: #4a7d2a !important;
+            border-color: #3d6622 !important;
+        }}
+
+        button[data-testid="baseButton-primary"]:not([key*="nav_"]) {{
+            background-color: #589444 !important;
+            color: white !important;
+        }}
+        
+        button[data-testid="baseButton-primary"]:not([key*="nav_"]):hover {{
+            background-color: #4a7d2a !important;
+        }}
+        
+        
+        
         .nav-logout {{
+            background: #ef4444 !important;
+            color: white !important;
+        }}
+        
+        /* Override button styling for navigation buttons specifically */
+        .stButton:has(+ div.nav-supplier) button,
+        .stButton:has(+ div.nav-dashboard) button,
+        .stButton:has(+ div.nav-logout) button {{
+            border: none !important;
+        }}
+        
+        .stButton:has(+ div.nav-supplier) button {{
+            background: {"linear-gradient(135deg, #667eea 0%, #764ba2 100%)" if st.session_state.active_tab == "SourcingAutomation" else "#f8fafc"} !important;
+            color: {"white" if st.session_state.active_tab == "SourcingAutomation" else "#64748b"} !important;
+        }}
+        
+        .stButton:has(+ div.nav-dashboard) button {{
+            background: {"linear-gradient(135deg, #f5b3fd 0%, #f9879b 100%)" if st.session_state.active_tab == "SourcingInsights" else "#f8fafc"} !important;
+            color: {"white" if st.session_state.active_tab == "SourcingInsights" else "#64748b"} !important;
+        }}
+        
+        .stButton:has(+ div.nav-logout) button {{
             background: #ef4444 !important;
             color: white !important;
         }}
